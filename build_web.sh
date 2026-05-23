@@ -39,6 +39,11 @@ npm install
 echo "Bundling and minifying web app via Vite..."
 npm run build
 
+# Step 4: Post-build copy hook to unify ROM paths
+echo "Step 4: Copying static public assets to dist/public..."
+mkdir -p dist/public
+cp -r static/public/* dist/public/
+
 echo "====================================================="
 echo " 🎉 FcEmu Web Build Completed successfully!"
 echo " Output assets are located in: ./dist"

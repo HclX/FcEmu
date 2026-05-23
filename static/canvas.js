@@ -874,17 +874,10 @@ async function reloadCurrentSelectedROM() {
     try {
         if (DEFAULT_ROMS[val]) {
             const romMeta = DEFAULT_ROMS[val];
-            let response = null;
-            try {
-                response = await fetch(romMeta.path);
-                if (!response.ok) throw new Error();
-            } catch (e) {
-                response = await fetch(romMeta.fallback);
-            }
-            if (response && response.ok) {
-                const arrayBuffer = await response.arrayBuffer();
-                await handleROMBuffer(arrayBuffer, romMeta.name);
-            }
+            const response = await fetch(romMeta.path);
+            if (!response.ok) throw new Error(`Server returned ${response.statusText}`);
+            const arrayBuffer = await response.arrayBuffer();
+            await handleROMBuffer(arrayBuffer, romMeta.name);
         } else if (val.startsWith("user-")) {
             const hash = val.replace("user-", "");
             const cached = userRomsCache[hash];
