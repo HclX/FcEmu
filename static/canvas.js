@@ -870,6 +870,24 @@ async function reloadCurrentSelectedROM() {
 }
 
 
+// Reset Button Listener
+const btnReset = document.getElementById("btn-reset");
+if (btnReset) {
+    btnReset.addEventListener("click", () => {
+        if (emulator) {
+            emulator.reset();
+            console.log("[FcEmu] Emulator reset successfully.");
+            if (!isRunning) {
+                isRunning = true;
+                requestAnimationFrame(loop);
+                console.log("[FcEmu] Emulation loop resumed.");
+            }
+        } else {
+            console.warn("[FcEmu] Cannot reset: No ROM loaded.");
+        }
+    });
+}
+
 // Graphics Filter Toggle Listeners
 const btnFilterCrisp = document.getElementById("btn-filter-crisp");
 const btnFilterSmooth = document.getElementById("btn-filter-smooth");
