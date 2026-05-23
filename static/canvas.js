@@ -457,6 +457,24 @@ if (btnLoadDefault) {
     });
 }
 
+// Graphics Filter Toggle Listeners
+const btnFilterCrisp = document.getElementById("btn-filter-crisp");
+const btnFilterSmooth = document.getElementById("btn-filter-smooth");
+
+if (btnFilterCrisp && btnFilterSmooth) {
+    btnFilterCrisp.addEventListener("click", () => {
+        btnFilterCrisp.classList.add("active");
+        btnFilterSmooth.classList.remove("active");
+        canvas.classList.add("crisp");
+    });
+
+    btnFilterSmooth.addEventListener("click", () => {
+        btnFilterSmooth.classList.add("active");
+        btnFilterCrisp.classList.remove("active");
+        canvas.classList.remove("crisp");
+    });
+}
+
 // Apply base sizing and initialize WASM Emulator core
 applyLayoutSize();
 initWasm().then(async () => {
