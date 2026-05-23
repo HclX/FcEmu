@@ -32,7 +32,6 @@ const DEFAULT_ROMS = {
     "multicart": { name: "1200-in-1 Multicart", path: "./public/roms/1200-in-1.nes" }
 };
 let userRomsCache = {}; // Cache user ROM ArrayBuffers by Hash key
-let localIpHash = "local-lobby"; // Fallback LAN namespace hash
 
 
 // Expose globals for Playwright E2E tests
@@ -151,27 +150,6 @@ async function computeROMHash(arrayBuffer) {
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     const hashHex = hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
     return hashHex;
-}
-
-async function initializeLocalIpHash() {
-    try {
-        console.log("[Netplay] Querying secure public IP for LAN matchmaking...");
-        const response = await fetch("https://api.ipify.org?format=json");
-        if (response.ok) {
-            const data = await response.json();
-            if (data && data.ip) {
-                const ipString = data.ip.trim();
-                const encoder = new TextEncoder();
-                const dataBytes = encoder.encode(ipString);
-                const hashBuffer = await crypto.subtle.digest("SHA-256", dataBytes);
-                const hashArray = Array.from(new Uint8Array(hashBuffer));
-                localIpHash = hashArray.slice(0, 6).map(b => b.toString(16).padStart(2, "0")).join(""); // 12 chars
-                console.log(`[Netplay] LAN matchmaking namespace: fce-lobby-${localIpHash}`);
-            }
-        }
-    } catch (err) {
-        console.warn("[Netplay] Public IP API failed (offline LAN mode). Using fallback broadcast lobby.");
-    }
 }
 
 // Magic Bytes iNES Check
@@ -1019,8 +997,8 @@ function updateMultiplayerUI(state) {
             
             joinPeerInput.readOnly = true;
             
-            joinBtn.disabled = true;
-            joinBtn.textContent = "Connecting...";
+            joinBtn.disabled = false;
+            joinBtn.textContent = "Cancel";
             break;
             
         case "guest-connected":
@@ -1041,9 +1019,9 @@ function updateMultiplayerUI(state) {
 function initPeer(asHost = true) {
     if (peer) return;
 
-    // Initialize PeerJS broker client with secure IP-hashed LAN namespace
-    const shortId = Math.random().toString(36).substring(2, 6); // 4 chars
-    const namespacedId = `fce-lobby-${localIpHash}-${shortId}`;
+    // Generate 4-digit numeric code
+    const code = Math.floor(1000 + Math.random() * 9000).toString();
+    const namespacedId = `fce-${code}`;
     console.log(`[Netplay] Initializing PeerJS client with namespaced ID: ${namespacedId}`);
     
     peer = new Peer(namespacedId);
@@ -1053,7 +1031,7 @@ function initPeer(asHost = true) {
         
         if (asHost) {
             isHost = true;
-            const displayId = id.includes(`fce-lobby-${localIpHash}-`) ? id.replace(`fce-lobby-${localIpHash}-`, "") : id;
+            const displayId = id.startsWith("fce-") ? id.replace("fce-", "") : id;
             const upperDisplayId = displayId.toUpperCase();
 
             const peerIdInput = document.getElementById("peer-id-input");
@@ -1253,6 +1231,25 @@ if (joinBtn && joinPeerInput) {
     joinBtn.addEventListener("click", async () => {
         const action = joinBtn.textContent.trim();
         
+        if (action === "Cancel") {
+            console.log("[Netplay] Canceling connection attempt...");
+            if (conn) {
+                conn.close();
+                conn = null;
+            }
+            if (peer) {
+                peer.destroy();
+                peer = null;
+            }
+            updateMultiplayerUI("idle");
+            const statusEl = document.getElementById("connection-status");
+            if (statusEl) {
+                statusEl.textContent = "Disconnected";
+                statusEl.style.color = "var(--text-muted)";
+            }
+            return;
+        }
+
         if (action === "Copy Link" || action === "Copy") {
             try {
                 const id = joinPeerInput.value.trim();
@@ -1314,6 +1311,13 @@ if (joinBtn && joinPeerInput) {
                 }
             }
         }
+
+        // Enforce 4-digit code format namespacing
+        if (/^\d{4}$/.test(targetId)) {
+            targetId = `fce-${targetId}`;
+        } else if (targetId.toLowerCase().startsWith("fce-")) {
+            targetId = targetId.toLowerCase();
+        }
         
         if (!peer) {
             initPeer(false);
@@ -1329,104 +1333,25 @@ if (joinBtn && joinPeerInput) {
     });
 }
 
-// ==========================================
-// Public IP Hashed LAN Auto-Discovery (Milestone 5)
-// ==========================================
-const btnScanLan = document.getElementById("btn-scan-lan");
-const lanLobbiesList = document.getElementById("lan-lobbies-list");
-
-async function scanForLanGames() {
-    if (!peer) {
-        initPeer(false);
-    }
-    if (!peer) return;
-
-    if (btnScanLan) {
-        btnScanLan.disabled = true;
-        btnScanLan.textContent = "Scanning...";
-    }
-    if (lanLobbiesList) {
-        lanLobbiesList.innerHTML = `<div style="font-size: 0.75rem; color: var(--accent-color); text-align: center; padding: 4px 0;">🔍 Polling LAN peers...</div>`;
-    }
-
-    // Request active peer list from Signaling Server Broker
-    peer.listAllPeers((peers) => {
-        if (btnScanLan) {
-            btnScanLan.disabled = false;
-            btnScanLan.textContent = "Scan";
-        }
-        
-        if (!lanLobbiesList) return;
-        lanLobbiesList.innerHTML = "";
-
-        const targetPrefix = `fce-lobby-${localIpHash}-`;
-        const discoveredLobbies = (peers || []).filter(pId => pId.startsWith(targetPrefix) && pId !== peer.id);
-
-        if (discoveredLobbies.length === 0) {
-            lanLobbiesList.innerHTML = `<div style="font-size: 0.75rem; color: var(--text-muted); text-align: center; padding: 4px 0; font-style: italic;">No nearby lobbies found</div>`;
-            return;
-        }
-
-        discoveredLobbies.forEach(lobbyId => {
-            const shortId = lobbyId.replace(targetPrefix, "").toUpperCase();
-            
-            const item = document.createElement("div");
-            item.style.display = "flex";
-            item.style.justifyContent = "space-between";
-            item.style.alignItems = "center";
-            item.style.backgroundColor = "#1a1b26";
-            item.style.border = "1px solid var(--border-color)";
-            item.style.borderRadius = "4px";
-            item.style.padding = "4px 8px";
-            item.style.fontSize = "0.8rem";
-            item.style.width = "100%";
-            item.style.boxSizing = "border-box";
-
-            item.innerHTML = `
-                <span style="color: var(--accent-hover); font-weight: 600;">🎮 Game Lobby ${shortId}</span>
-                <button class="btn-control" style="font-size: 0.75rem; padding: 2px 8px; border-color: var(--pass-color); color: var(--pass-color); cursor: pointer;" onclick="window.connectToLanLobby('${lobbyId}')">
-                    Join
-                </button>
-            `;
-            lanLobbiesList.appendChild(item);
-        });
-    });
-}
-
-window.connectToLanLobby = (lobbyId) => {
-    const peerIdInput = document.getElementById("peer-id-input");
-    if (peerIdInput) {
-        const displayId = lobbyId.replace(`fce-lobby-${localIpHash}-`, "").toUpperCase();
-        peerIdInput.value = displayId;
-    }
-    
-    // Automatically trigger WebRTC join handshake!
-    if (peer.open) {
-        connectToHost(lobbyId);
-    } else {
-        peer.once("open", () => {
-            connectToHost(lobbyId);
-        });
-    }
-};
-
-if (btnScanLan) {
-    btnScanLan.addEventListener("click", scanForLanGames);
-}
-
 // Automatically parse room query parameter on page load
 const urlParams = new URLSearchParams(window.location.search);
 const roomParam = urlParams.get("room");
 if (roomParam) {
-    console.log(`[Netplay] Detected room query parameter. Auto-connecting to: ${roomParam}`);
+    let targetId = roomParam;
+    if (/^\d{4}$/.test(targetId)) {
+        targetId = `fce-${targetId}`;
+    } else if (targetId.toLowerCase().startsWith("fce-")) {
+        targetId = targetId.toLowerCase();
+    }
+    console.log(`[Netplay] Detected room query parameter. Auto-connecting to: ${targetId}`);
     if (!peer) {
         initPeer(false);
     }
     if (peer.open) {
-        connectToHost(roomParam);
+        connectToHost(targetId);
     } else {
         peer.once("open", () => {
-            connectToHost(roomParam);
+            connectToHost(targetId);
         });
     }
 }
@@ -1434,8 +1359,7 @@ if (roomParam) {
 // Apply base sizing and initialize WASM Emulator core
 applyLayoutSize();
 initWasm().then(async () => {
-    console.log("[FcEmu] Initializing persistent ROM Library Selector & LAN Matchmaker...");
-    await initializeLocalIpHash();
+    console.log("[FcEmu] Initializing persistent ROM Library Selector & Matchmaker...");
     await refreshRomLibraryUI();
     
     // Auto-load the default Mario game on initial page bootup!
