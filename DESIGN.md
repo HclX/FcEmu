@@ -1,7 +1,9 @@
 # Famicom (NES) Emulator Design Document: `fce_core`
 
+> **Architecture Model**: Headless Core with WASM / P2P Netplay & ROM Library Frontend
+> **Version**: 3.0 (Master System Design Specification)
 
-This document specifies the technical architecture, interface design, timing constraints, WebAssembly (WASM) client-side bindings, online WebRTC P2P Netplay synchronization loops, and dynamic UI State Machine lifecycles for the modular Famicom (NES) emulator.
+This document specifies the technical architecture, interface design, timing constraints, WebAssembly (WASM) client-side bindings, persistent ROM Library managers, online WebRTC P2P Netplay synchronization loops, secure LAN Auto-Discovery matchmakers, and dynamic UI State Machine lifecycles for the modular Famicom (NES) emulator.
 
 ---
 
@@ -166,8 +168,14 @@ To dynamically clock notes and envelopes:
 *   **Quarter Frame (240Hz / ~7,457 CPU cycles)**: Clocks the Triangle linear counter.
 *   **Half Frame (120Hz / ~14,914 CPU cycles)**: Clocks `length_counter` decays for the Pulse 1, Pulse 2, Triangle, and Noise channels, automatically silencing note outputs when complete.
 
-### 4.4 iNES Mapper 227 (Multicart / Pirate PCB)
-Used primarily for various "X-in-1" multicarts (e.g. *1200-in-1*), Mapper 227 employs an **address-latch-based register** mapping CPU writes in the range `$8000–$FFFF`.
+### 4.4 iNES Mapper 2 (UxROM Bankswitching)
+Provides bankswitching capabilities for large cartridges (128KB to 256KB, e.g., *Contra*, *Mega Man*):
+*   **CPU Memory $8000-$BFFF (16KB)**: Switchable PRG-ROM bank, swapped by writing the target bank index byte to address range `$8000-$FFFF` (using lower 4 bits: `prg_bank = val & 0x0F`).
+*   **CPU Memory $C000-$FFFF (16KB)**: Hardwired/fixed to the **last 16KB bank** of the cartridge's PRG-ROM.
+*   **CHR ROM/RAM**: Emulates unbanked 8KB CHR-RAM.
+
+### 4.5 iNES Mapper 227 (Multicart / Pirate PCB)
+Used primarily for various "X-in-1" multicarts (e.g. *1200-in-1*), Mapper 227 employs an **address-latch-based register** mapping CPU writes in the range `$8000–$FFFF`. The address written to decodes the register configuration.
 
 #### Address Latch Configuration
 ```
@@ -177,28 +185,32 @@ Used primarily for various "X-in-1" multicarts (e.g. *1200-in-1*), Mapper 227 em
 *   **Bit 0 (S)**: PRG A14 Mode (`0` = fixed to bit `p`, `1` = mapped to CPU A14 for 32KB pages).
 *   **Bit 1 (M)**: Mirroring Select (`0` = Vertical mirroring, `1` = Horizontal mirroring).
 *   **Bit 4..2 (P, p, p)**: PRG A16..A14 (Inner 16KB bank selection).
-*   **Bit 7..5 (O, Q, Q)**: PRG A19..A17 (Outer 128KB block selection).
+*   **Bit 7, 6, 5, 8 (O, Q, Q, Q)**: PRG A19..A17 (Outer 128KB block selection).
+    *   *Note*: The PRG A19 line is mapped to the non-contiguous **Bit 8** of the latched address!
 *   **Bit 7 (O)**: Mode Indicator (`1` = NROM-128/256 modes, `0` = UNROM modes).
 *   **Bit 9 (L)**: UNROM Fixed High/Low Page Select (`0` = fixed low bank #0, `1` = fixed high bank #7).
 
-#### CHR-RAM Protection
-*   When mode bit `O` = 1, the 8KB CHR-RAM is write-protected (blocking menu-code corruptions). When `O` = 0, CHR-RAM writes are enabled.
-
 ---
-
 
 ## 5. WebAssembly (WASM) Client-Side Architecture
 
 The web platform interface compiles to WebAssembly (`wasm32-unknown-unknown`) for zero-cost, static deployment.
 
 ### 5.1 Shared Memory Strategy (100% Pure Zero-Copy)
-Rather than copying the massive frame buffer between WASM and JS, the JS frontend captures a direct `Uint8ClampedArray` view over the WASM linear memory memory and passes it directly to the browser Canvas context:
-```javascript
-const framePtr = emulator.frame_buffer_ptr();
-const rgbaBuffer = new Uint8ClampedArray(wasm_exports.memory.buffer, framePtr, 256 * 240 * 4);
-ctx.putImageData(new ImageData(rgbaBuffer, 256, 240), 0, 0);
-```
-This reduces Javascript frame visual mapping overhead from ~8ms to **0.1ms**, keeping CPU threads free to execute sound scheduling.
+Rather than copying the massive frame buffer between WASM and JS, the JS frontend captures a direct `Uint8ClampedArray` view over the WASM linear memory memory and passes it directly to the browser Canvas context.
+
+### 5.2 Persistent Client-Side ROM Library
+To turn the emulator into a persistent console gaming dashboard, we use browser-level **IndexedDB** local storage database:
+*   **Schemas (Database Version 2)**:
+    *   Store 1: `sram_saves` `{ keyPath: "romHash" }` (stores battery WRAM states).
+    *   Store 2: `user_roms` `{ keyPath: "romHash" }` (stores the raw ROM binary `ArrayBuffer` bytes, file names, and upload timestamps).
+*   **Caching Engine**: During boot, all archived user ROM buffers are fetched from the database and stored in a memory cache (`userRomsCache`). Clicking "Load" boots the game **instantly (0ms)** fully offline-resilient!
+*   **Consolidated Overlay Dropzone**: The entire sidebar dropdown selector acts as the Drag & Drop area (highlighting with glowing borders on `dragover`). To prevent click conflicts, the file dialog selection is isolated to a dedicated underlined `browse` text link.
+
+### 5.3 Client-Side ZIP Archive Extraction (JSZip)
+*   Imports the standard, lightweight **JSZip** engine asynchronously.
+*   When a `.zip` file is uploaded, it scans for any files ending with `.nes`.
+*   Decodes nested ROM data streams **parallelly using `Promise.all`** and automatically archives them in IndexedDB with clean game names (by stripping scene/extension tags).
 
 ---
 
@@ -207,70 +219,37 @@ This reduces Javascript frame visual mapping overhead from ~8ms to **0.1ms**, ke
 We implement **State-Synchronized Input-Delay P2P Netplay** (GGPO-style Lockstep) to connect two players directly over the internet with a zero active server footprint.
 
 ### 6.1 Savestate Serialization (Hot-Joining Sync)
-To dynamically sync states upon connection or re-joins, the Host serialized its modular memory variables manually into a compact **`68 KB` binary `Uint8Array`** packet and transmits it to the Guest:
-*   **Packed Fields**: CPU registers + master cycles + main memory `mem` (64KB) + Video RAM `vram` (2KB) + sprite memory `oam_data` (256B) + APU audio filter states.
-*   **Unpacking Loop**: Guest loads this snapshot directly, instantly aligning its `localFrameIndex` to match the Host's `syncFrameIndex`.
+To dynamically sync states upon connection or re-joins, the Host serialized its modular memory variables manually into a compact **`67,975` base bytes binary `Uint8Array`** packet:
+*   **Fields Packed**: CPU registers + main memory `mem` (64KB) + Video RAM `vram` (2KB) + PPU scroll registers + APU channels + active Cartridge WRAM/SRAM and mapper registers.
+*   **Selective Queue Pruning**: Guest aligns `localFrameIndex = syncFrameIndex` and deletes *only* pre-sync inputs older than `syncFrameIndex`, preserving valid incoming future look-ahead packets.
 
-### 6.2 2-Frame Input Delay Queue Loop
-Every frame, both browsers capture local inputs, buffer them locally, and transmit them to the peer **for execution exactly 2 frames in the future**:
-
-```
-Local Frame: F
-  │
-  ├── 1. Capture Local Input ──> Store in localInputs[F]
-  │
-  ├── 2. Look-Ahead Transmit ──> Send { frame: F + 2, input: localInput } to Peer P2P
-  │
-  ├── 3. Check Lockstep Gate: Is opponent's input peerInputs[F] received?
-  │        │
-  │        ├── [YES] ──> Step WASM emulator using:
-  │        │               * Controller 1: localInputs[F - 2] (delayed)
-  │        │               * Controller 2: peerInputs[F]      (delayed)
-  │        │             localFrameIndex++ (Next Frame)
-  │        │
-  │        └── [NO]  ──> Block Emulation ──> Render translucent "Buffering..." spinner.
-```
-*   **Look-Ahead Buffer**: Delaying local inputs by 2 frames (`33ms`) allows opponent input packets to arrive before the frame ticks, rendering gameplay 100% lag-free.
-*   **Bootstrap check**: Bypasses the lockstep gate during the first 2 steps immediately following synchronization:
-    `const isInitialFrame = (currentFrame - syncFrameIndex) < 2;`
+### 6.2 Unified Binary Packet Protocol
+Bypasses standard JSON stringification by packing all multiplayer operations into raw binary UDP-friendly `ArrayBuffer` bytes:
+*   **INPUT Packet (6 Bytes)**: `Byte 0`: `0x01` | `Byte 1..4`: `frame` (32-bit uE) | `Byte 5`: `input` (1 byte).
+*   **SYNC_STATE Packet (~68 KB)**: `Byte 0`: `0x02` | `Byte 1..4`: `frame` | `Byte 5..`: `savestate_bytes`.
 
 ---
 
-## 7. UI/UX Multiplayer State Machine Specification
+## 7. Secure Hashed LAN Auto-Discovery Matchmaker
+
+Provides automated local lobby discovery on a Local Area Network (LAN) behind standard router boundaries without exposing actual IP addresses or requiring complex manual port scanning:
+
+### 7.1 WAN IP Hash Matching Logic
+*   **Bootup Hashing**: On page boot, both Host and Guest perform a background HTTPS request to a public IP API (`api.ipify.org`) to fetch their external public WAN IP.
+*   **Secure SHA-256 Namespace**: The IP string is hashed safely using Web Crypto SHA-256. The first 12 characters of the hash is extracted as a secure local namespace identifier: `fce-lobby-[localIpHash]`.
+*   **Host Namespaced Peer ID**: The Host starts PeerJS using a custom Namespaced ID: `fce-lobby-[localIpHash]-[SHORT_ID]` (displaying only the clean 4-letter `SHORT_ID` in the UI).
+*   **Guest LAN Scan**: The Guest calls `peer.listAllPeers()` and automatically filters the results to display **only lobbies that start with the Guest's own `localIpHash` namespace!** This securely lists local LAN hosts nearby while ignoring remote WAN peers!
+
+---
+
+## 8. UI/UX Multiplayer State Machine Specification
 
 The connection control panel utilizes a strict, mutually exclusive state machine to prevent visual state corruption.
-
-```
-                     ┌───────────────┐
-                     │    1. IDLE    │
-                     └───────┬───────┘
-                 Host Game   │   Join Host
-             ┌───────────────┴───────────────┐
-             ▼                               ▼
-     ┌───────────────┐               ┌───────────────┐
-     │  2. HOSTING   │               │ 4. CONNECTING │
-     └───────┬───────┘               └───────┬───────┘
-       Join  │                               │ Connected
-     ┌───────┴───────┐                       │
-     ▼               │                       ▼
-┌───────────────┐    │               ┌───────────────┐
-│ 3. HOST-CONN  │    │               │ 5. GUEST-CONN │
-└───────────────┘    │               └───────────────┘
-                     │ Stop Hosting
-                     └───────────────> Revert to IDLE
-```
-
-### 7.1 State Transitions & Interface Behaviors
 
 | State | Trigger Event | Host Button Style/Status | Input Field | Join/Action Button Style/Status | Status Text |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **1. IDLE** | Page Load / Revert | Enabled ("Host Game") | Editable, empty | Enabled ("Join") | "Disconnected" (Gray) |
-| **2. HOSTING** | Host clicks "Host Game" | **Enabled ("Stop Hosting")**, Soft Red background | **Locked (readOnly = true)**, contains Host Peer ID | **Enabled ("Copy")** | "Hosting. ID: <id>" (Orange) |
+| **2. HOSTING** | Host clicks "Host Game" | **Enabled ("Stop Hosting")**, Soft Red background | **Locked (readOnly = true)**, contains Host Peer ID | **Enabled ("Copy Link")** | "Hosting. ID: <id>" (Orange) |
 | **3. HOST-CONN** | Guest connects | **Disabled ("Hosting")**, Grayed out | **Locked (readOnly = true)** | **Enabled ("Disconnect")** | "Connected to Player 2!" (Green) |
 | **4. CONNECTING** | Guest clicks "Join" | **Disabled ("Host Game")**, Grayed out | **Locked (readOnly = true)** | **Disabled ("Connecting...")**, locks interactions | "Connecting..." (Yellow) |
 | **5. GUEST-CONN** | Connection established | **Disabled ("Host Game")**, Grayed out | **Locked (readOnly = true)** | **Enabled ("Disconnect")** | "Connected to Player 1 (Host)!" (Green) |
-
-### 7.2 Teardown and ROM-Swap Safety
-*   **Host Session Persistence**: If a Guest disconnects, the Host remains actively hosting on their Peer ID (reverting to `State 2: Hosting`), allowing instant reconnects without exchanging new IDs.
-*   **Guest Emulator Reset**: When a Guest leaves, the Guest's UI reverts back to `Idle` and their emulator core **automatically reloads the default ROM**, resetting CPU, VRAM, and audio to a clean starting title screen.
-*   **ROM-Swap Safety**: Dragging a new ROM file while connected instantly terminates the WebRTC connection to prevent cross-game memory corruption.

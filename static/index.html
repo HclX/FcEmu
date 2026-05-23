@@ -58,7 +58,7 @@
             display: flex;
             flex-direction: row;
             gap: 24px;
-            align-items: flex-start;
+            align-items: stretch;
             position: relative;
         }
 
@@ -252,7 +252,7 @@
         }
 
         .info-panel {
-            margin-top: 1.5rem;
+            margin-top: auto;
             font-size: 0.85rem;
             color: var(--text-muted);
             max-width: 560px;
@@ -293,6 +293,7 @@
         }
     </style>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 </head>
 <body>
 
@@ -350,19 +351,43 @@
                         <span class="control-label">Status:</span>
                         <span id="connection-status" style="font-weight: 600; color: var(--text-muted);">Disconnected</span>
                     </div>
+
+                    <!-- LAN Auto-Discovery Section -->
+                    <div id="lan-discovery-section" style="margin-top: 6px; border-top: 1px dashed var(--border-color); padding-top: 8px; width: 100%;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span class="control-label" style="font-size: 0.8rem; color: var(--text-muted);">DISCOVER LAN LOBBIES</span>
+                            <button id="btn-scan-lan" class="btn-control" style="font-size: 0.75rem; padding: 2px 8px; border-color: var(--accent-color); color: var(--accent-color); cursor: pointer;">
+                                🔍 Scan
+                            </button>
+                        </div>
+                        <div id="lan-lobbies-list" style="display: flex; flex-direction: column; gap: 4px; margin-top: 6px; max-height: 100px; overflow-y: auto; width: 100%;">
+                            <div style="font-size: 0.75rem; color: var(--text-muted); font-style: italic; text-align: center; padding: 4px 0;">Click Scan to discover nearby games</div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            <!-- Controls -->
-            <div class="controls-container">
-                <div id="drop-zone" class="dropzone">
-                    <p>Drag & Drop NES ROM here</p>
-                    <span>or click to browse files</span>
+            <!-- ROM Library & Dropzone Container Overlay -->
+            <div class="controls-container" id="drop-zone" style="gap: 12px; padding: 16px; width: 100%; box-sizing: border-box; position: relative; transition: all 0.2s ease; border-style: dashed; border-width: 1.5px;">
+                <input type="file" id="file-input" accept=".nes,.zip">
+
+                <!-- Clean, themed Library Dropdown -->
+                <div style="display: flex; flex-direction: column; gap: 6px; width: 100%;">
+                    <span class="control-label" style="font-size: 0.8rem; letter-spacing: 0.5px; color: var(--text-muted); text-align: left;">
+                        ROM LIBRARY <span style="font-size: 0.7rem; opacity: 0.7; font-weight: normal; margin-left: 2px;">(drag .nes/.zip here or <span id="btn-browse-roms" style="text-decoration: underline; cursor: pointer; color: var(--accent-color);">browse</span>)</span>
+                    </span>
+                    <div style="display: flex; gap: 8px; width: 100%;">
+                        <select id="library-select" style="flex-grow: 1; background-color: #1a1b26; border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-color); padding: 8px 10px; font-size: 0.85rem; outline: none; min-width: 0; cursor: pointer; transition: border-color 0.2s;">
+                            <!-- Dynamically populated -->
+                        </select>
+                        <button id="btn-load-rom" class="btn-control" style="border: 1px solid var(--border-color); border-radius: 6px; padding: 8px 14px; font-size: 0.85rem; cursor: pointer;">
+                            Load
+                        </button>
+                    </div>
+                    <button id="btn-delete-rom" class="btn-control" style="display: none; background-color: rgba(247, 118, 142, 0.15); border-color: #f7768e; color: #f7768e; width: 100%; font-size: 0.8rem; padding: 4px; margin-top: 2px; border-radius: 4px; cursor: pointer;">
+                        🗑️ Delete Selected ROM
+                    </button>
                 </div>
-                <input type="file" id="file-input" accept=".nes">
-                <button id="btn-load-default" class="btn-boot" style="width: 100%; margin-top: 8px; background-color: #24283b; color: var(--text-color); border: 1px solid var(--border-color); box-shadow: none;">
-                    ⚡ Load Default: Super Mario Bros.
-                </button>
             </div>
 
             <!-- Keyboard Mapping Info -->

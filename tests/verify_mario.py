@@ -47,7 +47,7 @@ def run_headless(headless_bin, rom_path, frames):
 
 def main():
     headless_bin = "./target/debug/headless"
-    rom_path = "roms/super_mario_bro.nes"
+    rom_path = "static/public/roms/super_mario_bro.nes"
     
     if not os.path.exists(headless_bin):
         print(f"[ERROR] Headless binary not found at {headless_bin}. Please compile it first using `cargo build --bin headless`.")

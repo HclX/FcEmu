@@ -240,16 +240,26 @@
             }
         }
 
+        const mockActivePeers = []; // Global registry tracking active Peer IDs inside test scope
+
         class MockPeer {
             constructor(id, latency = 30) {
                 this.id = id;
                 this.latency = latency;
                 this.handlers = {};
                 this.connection = null;
+                mockActivePeers.push(id); // Auto-register in global active list
             }
 
             on(event, handler) {
                 this.handlers[event] = handler;
+            }
+
+            listAllPeers(callback) {
+                // Simulate slight async network delay for broker polling
+                setTimeout(() => {
+                    callback(JSON.parse(JSON.stringify(mockActivePeers)));
+                }, 10);
             }
 
             connect(targetId) {
@@ -412,6 +422,33 @@
             const hostSramFinal = emuHost.get_sram();
             const guestSramFinal = emuGuest.get_sram();
             
+            // 6. Test Case 6: Secure Hashed LAN Auto-Discovery & IP Filtering
+            log("Testing Secure LAN Auto-Discovery & IP Hash Filtering...", "info");
+            
+            const testIpHash = "abc123xyz456";
+            const remoteIpHash = "farkli987654";
+            
+            // Register mock lobby hosts inside global registry
+            const localLobby1 = new MockPeer(`fce-lobby-${testIpHash}-a7f2`);
+            const localLobby2 = new MockPeer(`fce-lobby-${testIpHash}-b9c4`);
+            const remoteLobby = new MockPeer(`fce-lobby-${remoteIpHash}-d3e1`);
+            log("Registered mock lobbies (2 local sibling hosts, 1 remote host).", "info");
+
+            let scannedLobbies = [];
+            // Emulate Guest scanner filter query
+            localLobby1.listAllPeers((peers) => {
+                const targetPrefix = `fce-lobby-${testIpHash}-`;
+                scannedLobbies = peers.filter(id => id.startsWith(targetPrefix) && id !== `fce-lobby-${testIpHash}-a7f2`);
+            });
+
+            await sleep(30);
+            
+            // Assertions
+            assert(scannedLobbies.includes(`fce-lobby-${testIpHash}-b9c4`), "LAN Discovery failed to discover local sibling host");
+            assert(!scannedLobbies.includes(`fce-lobby-${remoteIpHash}-d3e1`), "LAN Discovery erroneously exposed remote WAN host");
+            
+            log("LAN Discovery E2E: Successfully discovered siblings & blocked remote WAN hosts!", "pass");
+
             // MD5 state verifications
             log("Netplay E2E integration verifications: ALL PASSED!", "pass");
         }

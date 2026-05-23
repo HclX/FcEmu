@@ -26,7 +26,14 @@ let peerInputs = {};
 let localInputs = {};
 let isHost = false;
 let netplayBlockStartTime = null;
-let defaultRomBuffer = null;
+const DEFAULT_ROMS = {
+    "mario": { name: "Super Mario Bros.", path: "./public/roms/super_mario_bro.nes" },
+    "contra": { name: "Contra", path: "./public/roms/contra.nes" },
+    "multicart": { name: "1200-in-1 Multicart", path: "./public/roms/1200-in-1.nes" }
+};
+let userRomsCache = {}; // Cache user ROM ArrayBuffers by Hash key
+let localIpHash = "local-lobby"; // Fallback LAN namespace hash
+
 
 // Expose globals for Playwright E2E tests
 window.localFrameIndex = 0;
@@ -48,7 +55,8 @@ const fileInput = document.getElementById("file-input");
 // IndexedDB Helpers
 const DB_NAME = "FcEmuDB";
 const STORE_NAME = "sram_saves";
-const DB_VERSION = 1;
+const ROM_STORE_NAME = "user_roms";
+const DB_VERSION = 2;
 
 function openDB() {
     return new Promise((resolve, reject) => {
@@ -58,9 +66,51 @@ function openDB() {
             if (!db.objectStoreNames.contains(STORE_NAME)) {
                 db.createObjectStore(STORE_NAME, { keyPath: "romHash" });
             }
+            if (!db.objectStoreNames.contains(ROM_STORE_NAME)) {
+                db.createObjectStore(ROM_STORE_NAME, { keyPath: "romHash" });
+            }
         };
         request.onsuccess = (event) => resolve(event.target.result);
         request.onerror = (event) => reject(event.error);
+    });
+}
+
+async function saveROMToDB(romHash, romName, romData) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction(ROM_STORE_NAME, "readwrite");
+        const store = transaction.objectStore(ROM_STORE_NAME);
+        const record = {
+            romHash: romHash,
+            romName: romName,
+            romData: romData, // ArrayBuffer bytes
+            addedAt: Date.now()
+        };
+        const request = store.put(record);
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
+    });
+}
+
+async function loadAllROMsFromDB() {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction(ROM_STORE_NAME, "readonly");
+        const store = transaction.objectStore(ROM_STORE_NAME);
+        const request = store.getAll();
+        request.onsuccess = () => resolve(request.result || []);
+        request.onerror = () => reject(request.error);
+    });
+}
+
+async function deleteROMFromDB(romHash) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction(ROM_STORE_NAME, "readwrite");
+        const store = transaction.objectStore(ROM_STORE_NAME);
+        const request = store.delete(romHash);
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
     });
 }
 
@@ -101,6 +151,27 @@ async function computeROMHash(arrayBuffer) {
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     const hashHex = hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
     return hashHex;
+}
+
+async function initializeLocalIpHash() {
+    try {
+        console.log("[Netplay] Querying secure public IP for LAN matchmaking...");
+        const response = await fetch("https://api.ipify.org?format=json");
+        if (response.ok) {
+            const data = await response.json();
+            if (data && data.ip) {
+                const ipString = data.ip.trim();
+                const encoder = new TextEncoder();
+                const dataBytes = encoder.encode(ipString);
+                const hashBuffer = await crypto.subtle.digest("SHA-256", dataBytes);
+                const hashArray = Array.from(new Uint8Array(hashBuffer));
+                localIpHash = hashArray.slice(0, 6).map(b => b.toString(16).padStart(2, "0")).join(""); // 12 chars
+                console.log(`[Netplay] LAN matchmaking namespace: fce-lobby-${localIpHash}`);
+            }
+        }
+    } catch (err) {
+        console.warn("[Netplay] Public IP API failed (offline LAN mode). Using fallback broadcast lobby.");
+    }
 }
 
 // Magic Bytes iNES Check
@@ -429,11 +500,6 @@ async function handleROMBuffer(arrayBuffer, romName = "unknown_rom.nes") {
     if (success) {
         console.log("ROM loaded successfully. Starting loop.");
         
-        // Update dropzone text
-        const dropZonePara = dropZone.querySelector("p");
-        const dropZoneSpan = dropZone.querySelector("span");
-        if (dropZonePara) dropZonePara.textContent = `ROM Active: ${romName}`;
-        if (dropZoneSpan) dropZoneSpan.textContent = "Click or drop to swap ROMs";
 
         // 5. Auto-Restore SRAM if cartridge supports battery-backed SRAM
         if (emulator.has_battery_backed_sram()) {
@@ -511,6 +577,66 @@ document.addEventListener("visibilitychange", () => {
     }
 });
 
+// Process and extract standard iNES ROM files inside a ZIP archive
+async function handleZipBuffer(arrayBuffer) {
+    if (typeof JSZip === "undefined") {
+        alert("ZIP extraction engine is not ready. Please wait or refresh the page.");
+        return;
+    }
+
+    try {
+        console.log("[FcEmu] Loading ZIP archive bytes into JSZip...");
+        const zip = await JSZip.loadAsync(arrayBuffer);
+        let addedCount = 0;
+        let lastSelectedHash = null;
+        let lastSelectedName = null;
+        let lastSelectedData = null;
+
+        const promises = [];
+        zip.forEach((relativePath, file) => {
+            if (relativePath.endsWith(".nes") && !file.dir) {
+                const promise = file.async("arraybuffer").then(async (romData) => {
+                    if (validateNESHeader(romData)) {
+                        const hash = await computeROMHash(romData);
+                        // Extract game name: strip extension and trim spaces
+                        const cleanName = file.name.replace(/\.[^/.]+$/, "");
+                        console.log(`[FcEmu] Extracted game ROM from ZIP: "${cleanName}" (SHA-256: ${hash})`);
+                        await saveROMToDB(hash, cleanName, romData);
+                        
+                        addedCount++;
+                        lastSelectedHash = hash;
+                        lastSelectedName = cleanName;
+                        lastSelectedData = romData;
+                    }
+                });
+                promises.push(promise);
+            }
+        });
+
+        await Promise.all(promises);
+
+        if (addedCount > 0) {
+            console.log(`[FcEmu] Persistent ROM library successfully imported ${addedCount} game(s) from ZIP archive.`);
+            await refreshRomLibraryUI();
+            
+            // Automatically select and load the last imported game instantly!
+            if (selectLibrary && lastSelectedHash) {
+                selectLibrary.value = `user-${lastSelectedHash}`;
+                syncDeleteButtonState();
+            }
+            if (lastSelectedData) {
+                await handleROMBuffer(lastSelectedData.slice(0), lastSelectedName);
+            }
+            alert(`Successfully imported ${addedCount} game(s) from ZIP archive to your library!`);
+        } else {
+            alert("No valid iNES (.nes) ROM files found inside the uploaded ZIP archive.");
+        }
+    } catch (err) {
+        console.error("[FcEmu] Failed to process ZIP file:", err);
+        alert(`Failed to extract ZIP file: ${err.message}`);
+    }
+}
+
 // Drag and Drop event handlers
 dropZone.addEventListener("dragover", (e) => {
     e.preventDefault();
@@ -526,32 +652,96 @@ dropZone.addEventListener("drop", async (e) => {
     dropZone.classList.remove("dragover");
     
     const files = e.dataTransfer.files;
-    if (files.length > 0 && files[0].name.endsWith(".nes")) {
+    if (files.length > 0) {
+        const file = files[0];
         const reader = new FileReader();
-        const fileName = files[0].name;
-        reader.onload = (event) => {
-            handleROMBuffer(event.target.result, fileName);
-        };
-        reader.readAsArrayBuffer(files[0]);
-    } else {
-        alert("Please drop a valid .nes ROM file.");
+        
+        if (file.name.endsWith(".zip")) {
+            reader.onload = async (event) => {
+                await handleZipBuffer(event.target.result);
+            };
+            reader.readAsArrayBuffer(file);
+        } else if (file.name.endsWith(".nes")) {
+            reader.onload = async (event) => {
+                const arrayBuffer = event.target.result;
+                if (!validateNESHeader(arrayBuffer)) {
+                    alert("Error: Invalid ROM file format. Magic signature does not match iNES standard.");
+                    return;
+                }
+                try {
+                    const hash = await computeROMHash(arrayBuffer);
+                    // Clean up extension to extract game name
+                    const cleanName = file.name.replace(/\.[^/.]+$/, "");
+                    console.log(`[FcEmu] Storing dropped ROM into persistent IndexedDB library: ${cleanName}`);
+                    await saveROMToDB(hash, cleanName, arrayBuffer);
+                    await refreshRomLibraryUI();
+                    
+                    if (selectLibrary) {
+                        selectLibrary.value = `user-${hash}`;
+                        syncDeleteButtonState();
+                    }
+                    await handleROMBuffer(arrayBuffer.slice(0), cleanName);
+                } catch (err) {
+                    console.error("[FcEmu] Failed to import dropped ROM:", err);
+                    alert("Failed to save dropped ROM to your persistent library.");
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        } else {
+            alert("Please drop a valid .nes ROM or .zip archive file.");
+        }
     }
 });
 
-// File click selection handler
-dropZone.addEventListener("click", () => {
-    fileInput.click();
-});
+// File click selection handler (isolated to the browse text link to prevent click conflicts!)
+const btnBrowseRoms = document.getElementById("btn-browse-roms");
+if (btnBrowseRoms) {
+    btnBrowseRoms.addEventListener("click", (e) => {
+        e.stopPropagation(); // Prevent bubbling to parent dropdown container!
+        fileInput.click();
+    });
+}
 
 fileInput.addEventListener("change", (e) => {
     const files = e.target.files;
     if (files.length > 0) {
+        const file = files[0];
         const reader = new FileReader();
-        const fileName = files[0].name;
-        reader.onload = (event) => {
-            handleROMBuffer(event.target.result, fileName);
-        };
-        reader.readAsArrayBuffer(files[0]);
+        
+        if (file.name.endsWith(".zip")) {
+            reader.onload = async (event) => {
+                await handleZipBuffer(event.target.result);
+            };
+            reader.readAsArrayBuffer(file);
+        } else if (file.name.endsWith(".nes")) {
+            reader.onload = async (event) => {
+                const arrayBuffer = event.target.result;
+                if (!validateNESHeader(arrayBuffer)) {
+                    alert("Error: Invalid ROM file format. Magic signature does not match iNES standard.");
+                    return;
+                }
+                try {
+                    const hash = await computeROMHash(arrayBuffer);
+                    // Clean up extension to extract game name
+                    const cleanName = file.name.replace(/\.[^/.]+$/, "");
+                    console.log(`[FcEmu] Storing selected ROM into persistent IndexedDB library: ${cleanName}`);
+                    await saveROMToDB(hash, cleanName, arrayBuffer);
+                    await refreshRomLibraryUI();
+                    
+                    if (selectLibrary) {
+                        selectLibrary.value = `user-${hash}`;
+                        syncDeleteButtonState();
+                    }
+                    await handleROMBuffer(arrayBuffer.slice(0), cleanName);
+                } catch (err) {
+                    console.error("[FcEmu] Failed to import selected ROM:", err);
+                    alert("Failed to save selected ROM to your persistent library.");
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        } else {
+            alert("Please select a valid .nes ROM or .zip archive file.");
+        }
     }
 });
 
@@ -562,53 +752,152 @@ window.addEventListener("resize", () => {
 // Boot button overlay click event
 bootBtn.addEventListener("click", startAudioAndCore);
 
-async function loadDefaultROM() {
-    if (defaultRomBuffer) {
-        console.log("[FcEmu] Loading default ROM from memory cache...");
-        await handleROMBuffer(defaultRomBuffer.slice(0), "super_mario_bro.nes");
-        return;
+// ==========================================
+// ROM Library Management (IndexedDB Persistent Store)
+// ==========================================
+const selectLibrary = document.getElementById("library-select");
+const btnLoadRom = document.getElementById("btn-load-rom");
+const btnDeleteRom = document.getElementById("btn-delete-rom");
+
+async function refreshRomLibraryUI() {
+    if (!selectLibrary) return;
+    
+    // Clear dropdown options
+    selectLibrary.innerHTML = "";
+    userRomsCache = {};
+
+    // 1. Add default ROM collection options
+    for (const key in DEFAULT_ROMS) {
+        const opt = document.createElement("option");
+        opt.value = key;
+        opt.textContent = `⚡ ${DEFAULT_ROMS[key].name}`;
+        selectLibrary.appendChild(opt);
     }
 
-    const btnLoadDefault = document.getElementById("btn-load-default");
-    let originalText = "";
-    if (btnLoadDefault) {
-        btnLoadDefault.disabled = true;
-        originalText = btnLoadDefault.textContent;
-        btnLoadDefault.textContent = "⚡ Fetching ROM...";
-    }
-    
+    // 2. Add user-uploaded persistent ROMs from DB
     try {
-        let response = null;
-        try {
-            response = await fetch("./roms/super_mario_bro.nes");
-            if (!response.ok) throw new Error();
-        } catch (e) {
-            response = await fetch("./public/roms/super_mario_bro.nes");
-            if (!response.ok) {
-                throw new Error(`Server returned status ${response.status}`);
-            }
-        }
-        
-        const arrayBuffer = await response.arrayBuffer();
-        defaultRomBuffer = arrayBuffer;
-        await handleROMBuffer(arrayBuffer.slice(0), "super_mario_bro.nes");
+        const userRoms = await loadAllROMsFromDB();
+        userRoms.forEach(rom => {
+            const opt = document.createElement("option");
+            opt.value = `user-${rom.romHash}`;
+            opt.textContent = `💾 ${rom.romName}`;
+            selectLibrary.appendChild(opt);
+            
+            // Cache the ROM ArrayBuffer in memory for 0ms instant loads!
+            userRomsCache[rom.romHash] = {
+                name: rom.romName,
+                data: rom.romData
+            };
+        });
     } catch (err) {
-        console.error("Failed to load default ROM:", err);
-        alert(`Failed to load default ROM: ${err.message}. Ensure the ROM file exists at 'roms/super_mario_bro.nes' in your static build folder.`);
-    } finally {
-        if (btnLoadDefault) {
-            btnLoadDefault.disabled = false;
-            btnLoadDefault.textContent = originalText;
-        }
+        console.error("[FcEmu] Failed to load user ROMs from IndexedDB:", err);
+    }
+
+    // Synchronize the Delete button visibility state
+    syncDeleteButtonState();
+}
+
+function syncDeleteButtonState() {
+    if (!selectLibrary || !btnDeleteRom) return;
+    const val = selectLibrary.value;
+    if (val && val.startsWith("user-")) {
+        btnDeleteRom.style.display = "block";
+    } else {
+        btnDeleteRom.style.display = "none";
     }
 }
 
-const btnLoadDefault = document.getElementById("btn-load-default");
-if (btnLoadDefault) {
-    btnLoadDefault.addEventListener("click", () => {
-        loadDefaultROM();
+if (selectLibrary) {
+    selectLibrary.addEventListener("change", syncDeleteButtonState);
+}
+
+if (btnLoadRom) {
+    btnLoadRom.addEventListener("click", async () => {
+        const val = selectLibrary.value;
+        if (!val) return;
+
+        btnLoadRom.disabled = true;
+        const originalText = btnLoadRom.textContent;
+        btnLoadRom.textContent = "Ticking...";
+
+        try {
+            if (DEFAULT_ROMS[val]) {
+                const romMeta = DEFAULT_ROMS[val];
+                const response = await fetch(romMeta.path);
+                if (!response.ok) throw new Error(`Server returned ${response.statusText}`);
+                const arrayBuffer = await response.arrayBuffer();
+                await handleROMBuffer(arrayBuffer, romMeta.name);
+            } else if (val.startsWith("user-")) {
+                // Load user ROM instantly from memory cache!
+                const hash = val.replace("user-", "");
+                const cached = userRomsCache[hash];
+                if (cached) {
+                    console.log(`[FcEmu] Loading user ROM "${cached.name}" from local IndexedDB cache...`);
+                    await handleROMBuffer(cached.data.slice(0), cached.name);
+                }
+            }
+        } catch (err) {
+            console.error("[FcEmu] ROM loading failed:", err);
+            alert(`Failed to load selected ROM: ${err.message}`);
+        } finally {
+            btnLoadRom.disabled = false;
+            btnLoadRom.textContent = originalText;
+        }
     });
 }
+
+if (btnDeleteRom) {
+    btnDeleteRom.addEventListener("click", async () => {
+        const val = selectLibrary.value;
+        if (!val || !val.startsWith("user-")) return;
+
+        const hash = val.replace("user-", "");
+        const cached = userRomsCache[hash];
+        if (confirm(`Are you sure you want to delete "${cached ? cached.name : 'this ROM'}" from your local library?`)) {
+            btnDeleteRom.disabled = true;
+            try {
+                await deleteROMFromDB(hash);
+                console.log(`[FcEmu] Successfully deleted ROM ${hash} from IndexedDB.`);
+                await refreshRomLibraryUI();
+            } catch (err) {
+                console.error("[FcEmu] Failed to delete ROM:", err);
+            } finally {
+                btnDeleteRom.disabled = false;
+            }
+        }
+    });
+}
+
+async function reloadCurrentSelectedROM() {
+    const val = selectLibrary ? selectLibrary.value : "mario";
+    if (!val) return;
+    try {
+        if (DEFAULT_ROMS[val]) {
+            const romMeta = DEFAULT_ROMS[val];
+            let response = null;
+            try {
+                response = await fetch(romMeta.path);
+                if (!response.ok) throw new Error();
+            } catch (e) {
+                response = await fetch(romMeta.fallback);
+            }
+            if (response && response.ok) {
+                const arrayBuffer = await response.arrayBuffer();
+                await handleROMBuffer(arrayBuffer, romMeta.name);
+            }
+        } else if (val.startsWith("user-")) {
+            const hash = val.replace("user-", "");
+            const cached = userRomsCache[hash];
+            if (cached) {
+                console.log(`[FcEmu] Reloading user ROM "${cached.name}" from local cache...`);
+                await handleROMBuffer(cached.data.slice(0), cached.name);
+            }
+        }
+    } catch (e) {
+        console.error("[FcEmu] Failed to reload active selected ROM:", e);
+    }
+}
+
 
 // Graphics Filter Toggle Listeners
 const btnFilterCrisp = document.getElementById("btn-filter-crisp");
@@ -759,27 +1048,34 @@ function updateMultiplayerUI(state) {
 function initPeer(asHost = true) {
     if (peer) return;
 
-    // Initialize PeerJS broker client
-    peer = new Peer();
+    // Initialize PeerJS broker client with secure IP-hashed LAN namespace
+    const shortId = Math.random().toString(36).substring(2, 6); // 4 chars
+    const namespacedId = `fce-lobby-${localIpHash}-${shortId}`;
+    console.log(`[Netplay] Initializing PeerJS client with namespaced ID: ${namespacedId}`);
+    
+    peer = new Peer(namespacedId);
 
     peer.on("open", (id) => {
         console.log(`[Netplay] PeerJS initialized. My Peer ID: ${id}`);
         
         if (asHost) {
             isHost = true;
+            const displayId = id.includes(`fce-lobby-${localIpHash}-`) ? id.replace(`fce-lobby-${localIpHash}-`, "") : id;
+            const upperDisplayId = displayId.toUpperCase();
+
             const peerIdInput = document.getElementById("peer-id-input");
             if (peerIdInput) {
-                peerIdInput.value = id;
+                peerIdInput.value = upperDisplayId;
             }
             const statusEl = document.getElementById("connection-status");
             if (statusEl) {
-                statusEl.textContent = `Hosting. ID: ${id}`;
+                statusEl.textContent = `Hosting. ID: ${upperDisplayId}`;
                 statusEl.style.color = "var(--accent-color)";
             }
 
             updateMultiplayerUI("hosting");
 
-            // Construct shareable room URL
+            // Construct shareable room URL (keeps the full namespaced ID to preserve URL joins!)
             const shareUrl = `${window.location.origin}${window.location.pathname}?room=${id}`;
             console.log(`[Netplay] Shareable connection link: ${shareUrl}`);
         }
@@ -890,7 +1186,7 @@ function setupConnectionHandlers(connection) {
         
         if (!wasHost) {
             console.log("[Netplay] Reverting Guest emulator back to clean starting state...");
-            loadDefaultROM();
+            reloadCurrentSelectedROM();
         }
     });
 
@@ -907,7 +1203,7 @@ function setupConnectionHandlers(connection) {
         
         if (!wasHost) {
             console.log("[Netplay] Reverting Guest emulator back to clean starting state...");
-            loadDefaultROM();
+            reloadCurrentSelectedROM();
         }
     });
 }
@@ -1040,6 +1336,91 @@ if (joinBtn && joinPeerInput) {
     });
 }
 
+// ==========================================
+// Public IP Hashed LAN Auto-Discovery (Milestone 5)
+// ==========================================
+const btnScanLan = document.getElementById("btn-scan-lan");
+const lanLobbiesList = document.getElementById("lan-lobbies-list");
+
+async function scanForLanGames() {
+    if (!peer) {
+        initPeer(false);
+    }
+    if (!peer) return;
+
+    if (btnScanLan) {
+        btnScanLan.disabled = true;
+        btnScanLan.textContent = "Scanning...";
+    }
+    if (lanLobbiesList) {
+        lanLobbiesList.innerHTML = `<div style="font-size: 0.75rem; color: var(--accent-color); text-align: center; padding: 4px 0;">🔍 Polling LAN peers...</div>`;
+    }
+
+    // Request active peer list from Signaling Server Broker
+    peer.listAllPeers((peers) => {
+        if (btnScanLan) {
+            btnScanLan.disabled = false;
+            btnScanLan.textContent = "Scan";
+        }
+        
+        if (!lanLobbiesList) return;
+        lanLobbiesList.innerHTML = "";
+
+        const targetPrefix = `fce-lobby-${localIpHash}-`;
+        const discoveredLobbies = (peers || []).filter(pId => pId.startsWith(targetPrefix) && pId !== peer.id);
+
+        if (discoveredLobbies.length === 0) {
+            lanLobbiesList.innerHTML = `<div style="font-size: 0.75rem; color: var(--text-muted); text-align: center; padding: 4px 0; font-style: italic;">No nearby lobbies found</div>`;
+            return;
+        }
+
+        discoveredLobbies.forEach(lobbyId => {
+            const shortId = lobbyId.replace(targetPrefix, "").toUpperCase();
+            
+            const item = document.createElement("div");
+            item.style.display = "flex";
+            item.style.justifyContent = "space-between";
+            item.style.alignItems = "center";
+            item.style.backgroundColor = "#1a1b26";
+            item.style.border = "1px solid var(--border-color)";
+            item.style.borderRadius = "4px";
+            item.style.padding = "4px 8px";
+            item.style.fontSize = "0.8rem";
+            item.style.width = "100%";
+            item.style.boxSizing = "border-box";
+
+            item.innerHTML = `
+                <span style="color: var(--accent-hover); font-weight: 600;">🎮 Game Lobby ${shortId}</span>
+                <button class="btn-control" style="font-size: 0.75rem; padding: 2px 8px; border-color: var(--pass-color); color: var(--pass-color); cursor: pointer;" onclick="window.connectToLanLobby('${lobbyId}')">
+                    Join
+                </button>
+            `;
+            lanLobbiesList.appendChild(item);
+        });
+    });
+}
+
+window.connectToLanLobby = (lobbyId) => {
+    const peerIdInput = document.getElementById("peer-id-input");
+    if (peerIdInput) {
+        const displayId = lobbyId.replace(`fce-lobby-${localIpHash}-`, "").toUpperCase();
+        peerIdInput.value = displayId;
+    }
+    
+    // Automatically trigger WebRTC join handshake!
+    if (peer.open) {
+        connectToHost(lobbyId);
+    } else {
+        peer.once("open", () => {
+            connectToHost(lobbyId);
+        });
+    }
+};
+
+if (btnScanLan) {
+    btnScanLan.addEventListener("click", scanForLanGames);
+}
+
 // Automatically parse room query parameter on page load
 const urlParams = new URLSearchParams(window.location.search);
 const roomParam = urlParams.get("room");
@@ -1060,6 +1441,20 @@ if (roomParam) {
 // Apply base sizing and initialize WASM Emulator core
 applyLayoutSize();
 initWasm().then(async () => {
-    console.log("[FcEmu] Auto-loading default ROM: Super Mario Bros...");
-    await loadDefaultROM();
+    console.log("[FcEmu] Initializing persistent ROM Library Selector & LAN Matchmaker...");
+    await initializeLocalIpHash();
+    await refreshRomLibraryUI();
+    
+    // Auto-load the default Mario game on initial page bootup!
+    if (selectLibrary) {
+        selectLibrary.value = "mario";
+        syncDeleteButtonState();
+        
+        const romMeta = DEFAULT_ROMS["mario"];
+        const response = await fetch(romMeta.path);
+        if (response && response.ok) {
+            const arrayBuffer = await response.arrayBuffer();
+            await handleROMBuffer(arrayBuffer, romMeta.name);
+        }
+    }
 });

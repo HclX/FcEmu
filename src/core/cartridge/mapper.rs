@@ -266,6 +266,86 @@ impl Mapper for Mapper1 {
     }
 }
 
+
+/// Mapper2 (UxROM) mapping logic.
+/// PRG ROM: 128KB or 256KB.
+/// CHR RAM: 8KB.
+pub struct Mapper2 {
+    prg_banks: u8,
+    _chr_banks: u8,
+    prg_bank: u8, // Switchable PRG bank index
+}
+
+impl Mapper2 {
+    pub fn new(prg_banks: u8, chr_banks: u8) -> Self {
+        Self {
+            prg_banks,
+            _chr_banks: chr_banks,
+            prg_bank: 0, // Default switchable bank: 0
+        }
+    }
+}
+
+impl Mapper for Mapper2 {
+    fn map_cpu_read(&self, addr: u16) -> Option<usize> {
+        if addr >= 0x8000 {
+            if addr < 0xC000 {
+                // $8000-$BFFF: Switchable 16KB bank
+                let bank = self.prg_bank as usize % self.prg_banks as usize;
+                Some(bank * 16384 + (addr as usize & 0x3FFF))
+            } else {
+                // $C000-$FFFF: Fixed to last 16KB bank
+                let bank = (self.prg_banks - 1) as usize;
+                Some(bank * 16384 + (addr as usize & 0x3FFF))
+            }
+        } else if (0x6000..=0x7FFF).contains(&addr) {
+            Some((addr - 0x6000) as usize)
+        } else {
+            None
+        }
+    }
+
+    fn map_cpu_write(&mut self, addr: u16, val: u8) -> Option<usize> {
+        if addr >= 0x8000 {
+            // Writing selects the switchable bank
+            self.prg_bank = val & 0x0F;
+            None
+        } else if (0x6000..=0x7FFF).contains(&addr) {
+            Some((addr - 0x6000) as usize)
+        } else {
+            None
+        }
+    }
+
+    fn map_ppu_read(&self, addr: u16) -> Option<usize> {
+        if addr < 0x2000 {
+            Some(addr as usize)
+        } else {
+            None
+        }
+    }
+
+    fn map_ppu_write(&mut self, addr: u16, _val: u8) -> Option<usize> {
+        if addr < 0x2000 {
+            Some(addr as usize)
+        } else {
+            None
+        }
+    }
+
+    fn save_state(&self) -> Vec<u8> {
+        let mut state = Vec::with_capacity(1);
+        state.push(self.prg_bank);
+        state
+    }
+
+    fn load_state(&mut self, state: &[u8]) {
+        if state.len() >= 1 {
+            self.prg_bank = state[0];
+        }
+    }
+}
+
 /// Mapper227 (Multicart / Chinese pirate board) mapping logic.
 /// PRG ROM: Up to 1MB.
 /// CHR RAM: 8KB.
@@ -424,6 +504,33 @@ mod tests {
     }
 
     #[test]
+    fn test_mapper2_banking() {
+        let mut mapper = Mapper2::new(8, 0); // 128KB PRG ROM, CHR RAM
+
+        // 1. Default startup mapping
+        // CPU $8000-$BFFF maps to bank 0 -> offset 0
+        assert_eq!(mapper.map_cpu_read(0x8000), Some(0));
+        assert_eq!(mapper.map_cpu_read(0xBFFF), Some(0x3FFF));
+        // CPU $C000-$FFFF maps to last bank 7 -> offset 7 * 16KB = 112KB
+        assert_eq!(mapper.map_cpu_read(0xC000), Some(7 * 16384));
+        assert_eq!(mapper.map_cpu_read(0xFFFF), Some(7 * 16384 + 0x3FFF));
+
+        // 2. Write bank register to select bank 5
+        mapper.map_cpu_write(0x9000, 5);
+        assert_eq!(mapper.prg_bank, 5);
+
+        // CPU $8000-$BFFF maps to bank 5 -> offset 5 * 16KB = 80KB
+        assert_eq!(mapper.map_cpu_read(0x8000), Some(5 * 16384));
+        assert_eq!(mapper.map_cpu_read(0xBFFF), Some(5 * 16384 + 0x3FFF));
+        // CPU $C000-$FFFF remains fixed to last bank 7 -> offset 112KB
+        assert_eq!(mapper.map_cpu_read(0xC000), Some(7 * 16384));
+
+        // 3. CHR RAM write/read
+        assert_eq!(mapper.map_ppu_read(0x1000), Some(0x1000));
+        assert_eq!(mapper.map_ppu_write(0x1000, 0xAA), Some(0x1000));
+    }
+
+    #[test]
     fn test_mapper1_shift_reg_and_prg_banking() {
         let mut mapper = Mapper1::new(4, 2);
         
@@ -497,5 +604,32 @@ mod tests {
         assert_eq!(mapper.map_cpu_read(0xC000), Some(7 * 16 * 1024));
         // CHR-RAM write should be enabled (O = 0)
         assert_eq!(mapper.map_ppu_write(0x1000, 0xAA), Some(0x1000));
+    }
+
+    #[test]
+    fn test_cartridge_handling_all_built_in_roms() {
+        use std::fs;
+        use crate::core::cartridge::Cartridge;
+
+        // 1. Verify Super Mario Bros (Mapper 0)
+        let mario_data = fs::read("static/public/roms/super_mario_bro.nes")
+            .expect("Failed to read super_mario_bro.nes");
+        let mario_cart = Cartridge::from_rom(&mario_data)
+            .expect("Failed to parse super_mario_bro.nes");
+        assert_eq!(mario_cart.mapper_id, 0);
+
+        // 2. Verify Contra (Mapper 2)
+        let contra_data = fs::read("static/public/roms/contra.nes")
+            .expect("Failed to read contra.nes");
+        let contra_cart = Cartridge::from_rom(&contra_data)
+            .expect("Failed to parse contra.nes");
+        assert_eq!(contra_cart.mapper_id, 2);
+
+        // 3. Verify 1200-in-1 Multicart (Mapper 227)
+        let multicart_data = fs::read("static/public/roms/1200-in-1.nes")
+            .expect("Failed to read 1200-in-1.nes");
+        let multicart_cart = Cartridge::from_rom(&multicart_data)
+            .expect("Failed to parse 1200-in-1.nes");
+        assert_eq!(multicart_cart.mapper_id, 227);
     }
 }
