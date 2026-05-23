@@ -129,21 +129,14 @@ const BUTTON_RIGHT = 1 << 7;
 
 // Keyboard Event mappings to Joypad bits
 const KEY_MAP = {
-    "KeyZ": BUTTON_A,
-    "KeyJ": BUTTON_A,
-    "KeyX": BUTTON_B,
-    "KeyK": BUTTON_B,
-    "ShiftRight": BUTTON_SELECT,
+    "ControlLeft": BUTTON_A,
+    "AltLeft": BUTTON_B,
     "Space": BUTTON_SELECT,
     "Enter": BUTTON_START,
     "ArrowUp": BUTTON_UP,
-    "KeyW": BUTTON_UP,
     "ArrowDown": BUTTON_DOWN,
-    "KeyS": BUTTON_DOWN,
     "ArrowLeft": BUTTON_LEFT,
-    "KeyA": BUTTON_LEFT,
-    "ArrowRight": BUTTON_RIGHT,
-    "KeyD": BUTTON_RIGHT
+    "ArrowRight": BUTTON_RIGHT
 };
 
 let controllerState = 0;
