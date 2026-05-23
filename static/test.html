@@ -207,6 +207,9 @@
         // ==========================================
         // 1. Mock WebRTC Loopback Engine
         // ==========================================
+        const mockActivePeers = []; // Global registry tracking active Peer IDs inside test scope
+        const mockActivePeerInstances = {}; // Map of ID -> MockPeer instance
+
         class MockConnection {
             constructor(label, peerInstance, latency = 30) {
                 this.label = label;
@@ -214,6 +217,7 @@
                 this.latency = latency;
                 this.handlers = {};
                 this.open = true;
+                this.sibling = null;
             }
 
             on(event, handler) {
@@ -226,8 +230,8 @@
                 // Simulate real-world UDP latency jitter
                 const jitterLatency = this.latency + (Math.random() * 10 - 5);
                 setTimeout(() => {
-                    const remoteConn = this.peerInstance.connection;
-                    if (remoteConn && remoteConn.handlers["data"]) {
+                    const remoteConn = this.sibling;
+                    if (remoteConn && remoteConn.open && remoteConn.handlers["data"]) {
                         // Safety deep clone to simulate WebRTC network boundaries
                         remoteConn.handlers["data"](JSON.parse(JSON.stringify(data)));
                     }
@@ -235,12 +239,15 @@
             }
 
             close() {
+                if (!this.open) return;
                 this.open = false;
                 if (this.handlers["close"]) this.handlers["close"]();
+                
+                if (this.sibling && this.sibling.open) {
+                    this.sibling.close();
+                }
             }
         }
-
-        const mockActivePeers = []; // Global registry tracking active Peer IDs inside test scope
 
         class MockPeer {
             constructor(id, latency = 30) {
@@ -248,7 +255,8 @@
                 this.latency = latency;
                 this.handlers = {};
                 this.connection = null;
-                mockActivePeers.push(id); // Auto-register in global active list
+                mockActivePeers.push(id);
+                mockActivePeerInstances[id] = this;
             }
 
             on(event, handler) {
@@ -263,11 +271,26 @@
             }
 
             connect(targetId) {
-                // Look up target peer instance from test context
-                const targetPeer = targetId === "host-peer" ? hostPeer : guestPeer;
+                let actualTargetId = targetId;
+                if (/^\d{4}$/.test(targetId)) {
+                    actualTargetId = `fce-${targetId}`;
+                }
+                
+                const targetPeer = mockActivePeerInstances[actualTargetId];
+                if (!targetPeer) {
+                    setTimeout(() => {
+                        if (this.handlers["error"]) {
+                            this.handlers["error"]({ type: "peer-not-found" });
+                        }
+                    }, 10);
+                    return null;
+                }
                 
                 const hostConn = new MockConnection("guest-to-host", targetPeer, this.latency);
                 const guestConn = new MockConnection("host-to-guest", this, this.latency);
+                
+                hostConn.sibling = guestConn;
+                guestConn.sibling = hostConn;
                 
                 this.connection = hostConn;
                 targetPeer.connection = guestConn;
@@ -281,7 +304,7 @@
                     // Fire open events on both connections
                     if (hostConn.handlers["open"]) hostConn.handlers["open"]();
                     if (guestConn.handlers["open"]) guestConn.handlers["open"]();
-                }, 10);
+                }, 50); // 50ms delay to allow cancellation tests
 
                 return hostConn;
             }
@@ -318,9 +341,9 @@
             log("Populated Host cartridge battery SRAM with dummy values.", "info");
 
             // 3. P2P WebRTC Connection Setup
-            log("Bootstrapping Mock WebRTC loopback connection (Latency: 30ms)...", "info");
-            hostPeer = new MockPeer("host-peer", 30);
-            guestPeer = new MockPeer("guest-peer", 30);
+            log("Bootstrapping Mock WebRTC loopback connection (4-Digit Code: 1234)...", "info");
+            hostPeer = new MockPeer("fce-1234", 30);
+            guestPeer = new MockPeer("fce-5678", 30);
 
             let hostConnOpened = false;
             let guestConnOpened = false;
@@ -329,12 +352,13 @@
                 conn.on("open", () => { hostConnOpened = true; });
             });
 
-            const guestConn = guestPeer.connect("host-peer");
+            // Guest connects using just the 4-digit code "1234"
+            const guestConn = guestPeer.connect("1234");
             guestConn.on("open", () => { guestConnOpened = true; });
 
             await sleep(100);
             assert(hostConnOpened && guestConnOpened, "WebRTC Connection Open failed");
-            log("WebRTC Loopback handshakes established successfully.", "pass");
+            log("WebRTC Loopback handshakes established successfully via 4-digit code.", "pass");
 
             // 4. Savestate Initial Synchronization
             log("Capturing and transmitting Host savestate...", "info");
@@ -422,34 +446,30 @@
             const hostSramFinal = emuHost.get_sram();
             const guestSramFinal = emuGuest.get_sram();
             
-            // 6. Test Case 6: Secure Hashed LAN Auto-Discovery & IP Filtering
-            log("Testing Secure LAN Auto-Discovery & IP Hash Filtering...", "info");
+            // 6. Test Case 6: Connection Cancellation & WebRTC Abort UX
+            log("Testing Connection Cancellation & WebRTC Abort...", "info");
             
-            const testIpHash = "abc123xyz456";
-            const remoteIpHash = "farkli987654";
+            const cancelHost = new MockPeer("fce-7777", 30);
+            const cancelGuest = new MockPeer("fce-8888", 30);
             
-            // Register mock lobby hosts inside global registry
-            const localLobby1 = new MockPeer(`fce-lobby-${testIpHash}-a7f2`);
-            const localLobby2 = new MockPeer(`fce-lobby-${testIpHash}-b9c4`);
-            const remoteLobby = new MockPeer(`fce-lobby-${remoteIpHash}-d3e1`);
-            log("Registered mock lobbies (2 local sibling hosts, 1 remote host).", "info");
-
-            let scannedLobbies = [];
-            // Emulate Guest scanner filter query
-            localLobby1.listAllPeers((peers) => {
-                const targetPrefix = `fce-lobby-${testIpHash}-`;
-                scannedLobbies = peers.filter(id => id.startsWith(targetPrefix) && id !== `fce-lobby-${testIpHash}-a7f2`);
+            let cancelHostConnected = false;
+            cancelHost.on("connection", (conn) => {
+                conn.on("open", () => { cancelHostConnected = true; });
             });
-
-            await sleep(30);
             
-            // Assertions
-            assert(scannedLobbies.includes(`fce-lobby-${testIpHash}-b9c4`), "LAN Discovery failed to discover local sibling host");
-            assert(!scannedLobbies.includes(`fce-lobby-${remoteIpHash}-d3e1`), "LAN Discovery erroneously exposed remote WAN host");
+            const cConn = cancelGuest.connect("7777");
             
-            log("LAN Discovery E2E: Successfully discovered siblings & blocked remote WAN hosts!", "pass");
+            // Immediately cancel the connection from guest side before it opens (50ms delay)
+            await sleep(10);
+            log("Guest triggers cancel/abort...", "info");
+            cConn.close(); 
+            
+            await sleep(100);
+            
+            assert(!cancelHostConnected, "Cancellation failed: Host still connected!");
+            assert(!cConn.open, "Cancellation failed: Guest connection still open!");
+            log("Connection cancellation and WebRTC abort verified successfully.", "pass");
 
-            // MD5 state verifications
             log("Netplay E2E integration verifications: ALL PASSED!", "pass");
         }
 
