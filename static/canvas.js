@@ -246,6 +246,7 @@ function saveKeyBindings() {
 }
 
 // Configurator State
+let tempKeyBindings = null;
 let activeConfigButton = null; // Stores the DOM element currently listening
 
 // Setup event listeners for keyboard input
@@ -256,11 +257,19 @@ window.addEventListener("keydown", (event) => {
         const targetButton = activeConfigButton.dataset.button;
         const newCode = event.code;
 
-        // Update bindings
-        keyBindings[targetButton] = newCode;
-        saveKeyBindings();
-        updateKeyMap();
-        updateKeyboardUI();
+        // Search tempKeyBindings for duplicates of the new key code.
+        for (const button in tempKeyBindings) {
+            if (tempKeyBindings[button] === newCode && button !== targetButton) {
+                tempKeyBindings[button] = null;
+            }
+        }
+
+        // Set tempKeyBindings[targetButton] = event.code
+        tempKeyBindings[targetButton] = newCode;
+
+        // Update modal UI and validate
+        updateModalUI();
+        validateMappings();
 
         // Reset listening state
         activeConfigButton.classList.remove("listening");
@@ -288,6 +297,7 @@ function updateKeyboardUI() {
         const el = document.getElementById(`kbd-${key}`);
         if (el) {
             el.textContent = formatKeyName(keyBindings[key]);
+            el.classList.remove("unmapped");
         }
     }
 
@@ -304,6 +314,47 @@ function updateKeyboardUI() {
             <li><span class="btn-label">Select</span><span class="btn-keys"><span class="kbd">${formatKeyName(keyBindings.SELECT)}</span></span></li>
             <li><span class="btn-label">Start</span><span class="btn-keys"><span class="kbd">${formatKeyName(keyBindings.START)}</span></span></li>
         `;
+    }
+}
+
+function updateModalUI() {
+    for (const key in tempKeyBindings) {
+        const el = document.getElementById(`kbd-${key}`);
+        if (el) {
+            const code = tempKeyBindings[key];
+            if (code) {
+                el.textContent = formatKeyName(code);
+                el.classList.remove("unmapped");
+            } else {
+                el.textContent = "Unmapped";
+                el.classList.add("unmapped");
+            }
+        }
+    }
+}
+
+function validateMappings() {
+    const saveBtn = document.getElementById("btn-save-keys");
+    if (!saveBtn) return;
+
+    let allMapped = true;
+    const requiredButtons = ["UP", "DOWN", "LEFT", "RIGHT", "A", "B", "SELECT", "START"];
+    
+    for (const btn of requiredButtons) {
+        if (!tempKeyBindings[btn]) {
+            allMapped = false;
+            break;
+        }
+    }
+
+    if (allMapped) {
+        saveBtn.removeAttribute("disabled");
+        saveBtn.style.opacity = "1";
+        saveBtn.style.cursor = "pointer";
+    } else {
+        saveBtn.setAttribute("disabled", "true");
+        saveBtn.style.opacity = "0.5";
+        saveBtn.style.cursor = "not-allowed";
     }
 }
 
@@ -332,6 +383,9 @@ const closeConfigBtn = document.getElementById("btn-close-keys");
 
 if (openConfigBtn && keyConfigModal) {
     openConfigBtn.addEventListener("click", () => {
+        tempKeyBindings = { ...keyBindings };
+        updateModalUI();
+        validateMappings();
         keyConfigModal.style.display = "flex";
     });
 }
@@ -342,6 +396,7 @@ function closeModal() {
             activeConfigButton.classList.remove("listening");
             const oldBtn = activeConfigButton.dataset.button;
             activeConfigButton.querySelector(".kbd").textContent = formatKeyName(keyBindings[oldBtn]);
+            activeConfigButton.querySelector(".kbd").classList.remove("unmapped");
             activeConfigButton = null;
         }
         keyConfigModal.style.display = "none";
@@ -369,7 +424,13 @@ configButtons.forEach(btn => {
         if (activeConfigButton) {
             activeConfigButton.classList.remove("listening");
             const oldBtn = activeConfigButton.dataset.button;
-            activeConfigButton.querySelector(".kbd").textContent = formatKeyName(keyBindings[oldBtn]);
+            const code = tempKeyBindings[oldBtn];
+            activeConfigButton.querySelector(".kbd").textContent = code ? formatKeyName(code) : "Unmapped";
+            if (!code) {
+                activeConfigButton.querySelector(".kbd").classList.add("unmapped");
+            } else {
+                activeConfigButton.querySelector(".kbd").classList.remove("unmapped");
+            }
         }
 
         if (activeConfigButton === btn) {
@@ -390,10 +451,20 @@ if (resetBtn) {
             activeConfigButton.classList.remove("listening");
             activeConfigButton = null;
         }
-        keyBindings = { ...DEFAULT_KEY_BINDINGS };
+        tempKeyBindings = { ...DEFAULT_KEY_BINDINGS };
+        updateModalUI();
+        validateMappings();
+    });
+}
+
+const saveBtn = document.getElementById("btn-save-keys");
+if (saveBtn) {
+    saveBtn.addEventListener("click", () => {
+        keyBindings = { ...tempKeyBindings };
         saveKeyBindings();
         updateKeyMap();
         updateKeyboardUI();
+        closeModal();
     });
 }
 

@@ -292,6 +292,12 @@
             color: var(--accent-hover);
         }
 
+        .kbd.unmapped {
+            background-color: #f7768e;
+            border: 1px solid #f7768e;
+            color: #0f0f13;
+        }
+
         details summary::-webkit-details-marker {
             display: none;
         }
@@ -454,10 +460,13 @@
             
             <div style="display: flex; gap: 8px; width: 100%; margin-top: 8px;">
                 <button id="btn-reset-controls" class="btn-control" style="flex: 1; background-color: rgba(247, 118, 142, 0.15); border-color: #f7768e; color: #f7768e; font-size: 0.8rem; padding: 6px; cursor: pointer;">
-                    Reset Defaults
+                    Reset
+                </button>
+                <button id="btn-save-keys" class="btn-control" disabled style="flex: 1; background-color: var(--accent-color); border-color: var(--accent-color); color: var(--bg-color); font-size: 0.8rem; padding: 6px; cursor: pointer; opacity: 0.5; cursor: not-allowed;">
+                    Save
                 </button>
                 <button id="btn-close-keys" class="btn-control" style="flex: 1; font-size: 0.8rem; padding: 6px; cursor: pointer;">
-                    Close
+                    Cancel
                 </button>
             </div>
         </div>
