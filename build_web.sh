@@ -42,7 +42,12 @@ npm run build
 # Step 4: Post-build copy hook to unify ROM paths
 echo "Step 4: Copying static public assets to dist/public..."
 mkdir -p dist/public
-cp -r static/public/* dist/public/
+if [ -d "static/public" ] && [ "$(ls -A static/public 2>/dev/null)" ]; then
+  cp -r static/public/* dist/public/
+  echo "Copied public assets successfully."
+else
+  echo "No public assets found to copy. Skipping."
+fi
 
 echo "====================================================="
 echo " 🎉 FcEmu Web Build Completed successfully!"
