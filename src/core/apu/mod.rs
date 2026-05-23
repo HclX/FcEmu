@@ -158,6 +158,8 @@ pub struct Apu {
     prev_input: f32,
     prev_output: f32,
     prev_lpf_output: f32,
+    frame_counter_cycle: u32,
+    frame_counter_step: u8,
 }
 
 impl Default for Apu {
@@ -178,6 +180,33 @@ impl Apu {
             prev_input: 0.0,
             prev_output: 0.0,
             prev_lpf_output: 0.0,
+            frame_counter_cycle: 0,
+            frame_counter_step: 0,
+        }
+    }
+
+    // Clock the Quarter Frame (Triangle linear counter)
+    fn clock_quarter_frame(&mut self) {
+        if self.triangle.control_flag {
+            self.triangle.linear_counter = self.triangle.linear_counter_reload;
+        } else if self.triangle.linear_counter > 0 {
+            self.triangle.linear_counter -= 1;
+        }
+    }
+
+    // Clock the Half Frame (Length counters for Pulse 1, Pulse 2, Triangle, and Noise)
+    fn clock_half_frame(&mut self) {
+        if self.pulse1.length_counter > 0 {
+            self.pulse1.length_counter -= 1;
+        }
+        if self.pulse2.length_counter > 0 {
+            self.pulse2.length_counter -= 1;
+        }
+        if self.triangle.length_counter > 0 {
+            self.triangle.length_counter -= 1;
+        }
+        if self.noise.length_counter > 0 {
+            self.noise.length_counter -= 1;
         }
     }
 
@@ -186,6 +215,19 @@ impl Apu {
         self.pulse2.tick(cycles);
         self.triangle.tick(cycles);
         self.noise.tick(cycles);
+
+        // Frame counter ticking (NTSC quarter step is 7457 cycles)
+        self.frame_counter_cycle += cycles;
+        while self.frame_counter_cycle >= 7457 {
+            self.clock_quarter_frame();
+            
+            self.frame_counter_step = (self.frame_counter_step + 1) & 3;
+            if self.frame_counter_step == 1 || self.frame_counter_step == 3 {
+                self.clock_half_frame();
+            }
+            
+            self.frame_counter_cycle -= 7457;
+        }
 
         self.cycle_accumulator += cycles as f64;
         let cycle_step = 1789773.0 / 44100.0;
