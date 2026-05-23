@@ -236,9 +236,9 @@ function loop() {
             const duration = sampleLen / 44100;
             let playTime = nextPlayTime;
 
-            // Snaps-on-underflow logic
+            // Snaps-on-underflow logic: add a 50ms safety buffer to absorb frame/thread jitter and prevent crackle
             if (playTime < audioCtx.currentTime) {
-                playTime = audioCtx.currentTime;
+                playTime = audioCtx.currentTime + 0.05;
             }
 
             // 100ms ceiling latency snapping, resetting to 20ms budget
