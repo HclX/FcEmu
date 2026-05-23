@@ -40,6 +40,12 @@ impl WasmEmulator {
         }
     }
 
+    /// Resets the emulator core (CPU and PPU).
+    pub fn reset(&mut self) {
+        self.cpu.reset(&mut self.bus);
+        self.bus.ppu.reset();
+    }
+
     /// Steps CPU instruction-by-instruction, syncs PPU, and ticks the APU until the frame is complete.
     pub fn step_frame(&mut self) {
         self.bus.ppu_frame_complete = false;
