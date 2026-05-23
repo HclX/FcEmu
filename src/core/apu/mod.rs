@@ -155,6 +155,9 @@ pub struct Apu {
     pub noise: NoiseChannel,
     pub sample_buffer: Vec<f32>,
     cycle_accumulator: f64,
+    prev_input: f32,
+    prev_output: f32,
+    prev_lpf_output: f32,
 }
 
 impl Default for Apu {
@@ -172,6 +175,9 @@ impl Apu {
             noise: NoiseChannel::default(),
             sample_buffer: Vec::new(),
             cycle_accumulator: 0.0,
+            prev_input: 0.0,
+            prev_output: 0.0,
+            prev_lpf_output: 0.0,
         }
     }
 
@@ -188,8 +194,20 @@ impl Apu {
             let p2 = self.pulse2.sample();
             let tri = self.triangle.sample();
             let ns = self.noise.sample();
-            let sample = mix(p1, p2, tri, ns);
-            self.sample_buffer.push(sample);
+            let raw_sample = mix(p1, p2, tri, ns);
+
+            // 1. High-Pass Filter (~90Hz cutoff to eliminate DC offset)
+            let alpha_hpf = 0.996_f32;
+            let hpf_sample = alpha_hpf * (self.prev_output + raw_sample - self.prev_input);
+            self.prev_input = raw_sample;
+            self.prev_output = hpf_sample;
+
+            // 2. Low-Pass Filter (~14kHz cutoff to smooth square wave aliasing)
+            let alpha_lpf = 0.666_f32;
+            let lpf_sample = self.prev_lpf_output + alpha_lpf * (hpf_sample - self.prev_lpf_output);
+            self.prev_lpf_output = lpf_sample;
+
+            self.sample_buffer.push(lpf_sample);
             self.cycle_accumulator -= cycle_step;
         }
     }
