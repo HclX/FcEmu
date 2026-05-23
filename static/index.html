@@ -291,6 +291,60 @@
             font-size: 0.8rem;
             color: var(--accent-hover);
         }
+
+        .canvas-area {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .btn-fullscreen {
+            background-color: var(--container-bg);
+            color: var(--text-color);
+            border: 1px solid var(--border-color);
+            padding: 10px 20px;
+            font-size: 1rem;
+            font-weight: 600;
+            border-radius: 8px;
+            cursor: pointer;
+            width: 100%;
+            transition: background-color 0.2s, color 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            box-sizing: border-box;
+        }
+
+        .btn-fullscreen:hover {
+            background-color: rgba(122, 162, 247, 0.1);
+            color: var(--accent-hover);
+            border-color: var(--accent-color);
+        }
+
+        /* Fullscreen styles */
+        #canvas-wrapper:fullscreen {
+            width: 100vw !important;
+            height: 100vh !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            background-color: #000 !important;
+            border-radius: 0 !important;
+        }
+
+        #canvas-wrapper:fullscreen #nes-canvas {
+            width: auto !important;
+            height: auto !important;
+            max-width: 100% !important;
+            max-height: 100% !important;
+            aspect-ratio: 4 / 3 !important;
+            image-rendering: pixelated !important;
+            image-rendering: crisp-edges !important;
+            image-rendering: -moz-crisp-edges !important;
+            image-rendering: -webkit-crisp-edges !important;
+        }
     </style>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -298,8 +352,9 @@
 <body>
 
     <div class="main-container">
-        <!-- Canvas Container -->
-        <div class="canvas-container" id="canvas-wrapper">
+        <div class="canvas-area">
+            <!-- Canvas Container -->
+            <div class="canvas-container" id="canvas-wrapper">
             <!-- Boot / Interactive Audio Initializer Overlay -->
             <div id="boot-overlay" class="overlay">
                 <button id="boot-btn" class="btn-boot">🔇 Unmute Audio & Play</button>
@@ -317,6 +372,8 @@
 
             <!-- Emulation Canvas (Default to Crisp Pixel Art) -->
             <canvas id="nes-canvas" class="crisp" width="256" height="240"></canvas>
+        </div>
+            <button id="btn-fullscreen" class="btn-fullscreen">📺 Full Screen</button>
         </div>
 
         <!-- Right Sidebar for Controls -->
