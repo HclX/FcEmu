@@ -329,19 +329,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 </head>
 <body>
-    <header style="margin-bottom: 1rem; text-align: center;">
-        <h1>FcEmu</h1>
-        <p class="subtitle">WebAssembly NES Emulator</p>
-        <div class="header-controls">
-            <button id="btn-reset" class="btn-circular" title="Reset Emulator">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
-                    <path d="M3 3v5h5"/>
-                </svg>
-            </button>
-        </div>
-    </header>
-
     <div class="main-container">
         <!-- Canvas Container -->
         <div class="canvas-container" id="canvas-wrapper">
@@ -368,12 +355,21 @@
         <div class="sidebar">
             <!-- Graphics Filter Control -->
             <div class="display-controls">
-                <div class="control-group">
-                    <span class="control-label">Graphics Filter</span>
-                    <div class="btn-group" id="filter-group">
-                        <button class="btn-control active" id="btn-filter-crisp">Crisp</button>
-                        <button class="btn-control" id="btn-filter-smooth">Smooth</button>
+                <div class="control-group" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                        <span class="control-label">Graphics Filter</span>
+                        <div class="btn-group" id="filter-group">
+                            <button class="btn-control active" id="btn-filter-crisp">Crisp</button>
+                            <button class="btn-control" id="btn-filter-smooth">Smooth</button>
+                        </div>
                     </div>
+                    
+                    <button id="btn-reset" class="btn-circular" title="Reset Emulator" style="margin: 0; flex-shrink: 0;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+                            <path d="M3 3v5h5"/>
+                        </svg>
+                    </button>
                 </div>
             </div>
 
