@@ -50,24 +50,24 @@
         }
 
         .main-container {
-            background-color: var(--container-bg);
-            border: 1px solid var(--border-color);
-            border-radius: 12px;
-            padding: 24px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
             display: flex;
-            flex-direction: row;
-            gap: 24px;
-            align-items: stretch;
+            justify-content: center;
+            align-items: center;
+            width: 100vw;
+            height: 100vh;
+            margin: 0;
+            padding: 0;
+            background-color: #16161e;
+            overflow: hidden;
             position: relative;
         }
 
-        .sidebar {
+        .canvas-area {
+            position: relative;
             display: flex;
             flex-direction: column;
-            gap: 16px;
-            width: 320px;
-            box-sizing: border-box;
+            align-items: center;
+            justify-content: center;
         }
 
         /* Canvas Container & Dynamic Crisp Resizing */
@@ -349,31 +349,106 @@
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: 12px;
+            position: relative;
         }
 
-        .btn-fullscreen {
-            background-color: var(--container-bg);
-            color: var(--text-color);
-            border: 1px solid var(--border-color);
-            padding: 10px 20px;
-            font-size: 1rem;
+        /* Floating HUD Overlay Bar */
+        .hud-bar {
+            position: absolute;
+            bottom: 12px;
+            left: 50%;
+            transform: translateX(-50%) translateY(80px);
+            opacity: 0;
+            pointer-events: none;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            border-radius: 30px;
+            background: rgba(26, 27, 38, 0.82);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+            transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease;
+            z-index: 1000;
+        }
+
+        /* Slide-up Hover Reveals */
+        #canvas-wrapper:hover .hud-bar {
+            transform: translateX(-50%) translateY(0);
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        /* Ensure HUD is hover-discoverable in fullscreen as well! */
+        #canvas-wrapper:fullscreen:hover .hud-bar {
+            transform: translateX(-50%) translateY(0);
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .hud-separator {
+            width: 1px;
+            height: 16px;
+            background-color: rgba(255, 255, 255, 0.15);
+        }
+
+        .hud-btn {
+            background: transparent;
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            color: rgba(255, 255, 255, 0.85);
+            padding: 4px 12px;
+            font-size: 0.75rem;
             font-weight: 600;
-            border-radius: 8px;
+            border-radius: 15px;
             cursor: pointer;
-            width: 100%;
-            transition: background-color 0.2s, color 0.2s;
+            transition: all 0.2s ease;
+            outline: none;
+        }
+
+        .hud-btn:hover {
+            background: rgba(122, 162, 247, 0.18);
+            border-color: var(--accent-color);
+            color: var(--accent-color);
+        }
+
+        .hud-btn.active {
+            background: var(--accent-color);
+            color: var(--bg-color);
+            border-color: var(--accent-color);
+        }
+
+        .hud-btn-circular {
+            background: transparent;
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            color: rgba(255, 255, 255, 0.85);
+            width: 26px;
+            height: 26px;
+            border-radius: 50%;
+            cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 8px;
-            box-sizing: border-box;
+            transition: all 0.2s ease;
+            outline: none;
+            padding: 0;
         }
 
-        .btn-fullscreen:hover {
-            background-color: rgba(122, 162, 247, 0.1);
-            color: var(--accent-hover);
+        .hud-btn-circular:hover {
+            background: rgba(122, 162, 247, 0.18);
             border-color: var(--accent-color);
+            color: var(--accent-color);
+            transform: scale(1.08);
+        }
+
+        .hud-btn-circular:active {
+            transform: scale(0.92);
+        }
+
+        .hud-btn-group {
+            display: flex;
+            gap: 4px;
         }
 
         /* Fullscreen styles */
@@ -385,6 +460,7 @@
             justify-content: center !important;
             background-color: #000 !important;
             border-radius: 0 !important;
+            position: relative !important;
         }
 
         #canvas-wrapper:fullscreen #nes-canvas {
@@ -406,99 +482,116 @@
         <div class="canvas-area">
             <!-- Canvas Container -->
             <div class="canvas-container" id="canvas-wrapper">
-            <!-- Boot / Interactive Audio Initializer Overlay -->
-            <div id="boot-overlay" class="overlay">
-                <button id="boot-btn" class="btn-boot">🔇 Unmute Audio & Play</button>
-                <p>The game is loaded and running! Click to unmute sound and start playing.</p>
-            </div>
+                <!-- Boot / Interactive Audio Initializer Overlay -->
+                <div id="boot-overlay" class="overlay">
+                    <button id="boot-btn" class="btn-boot">🔇 Unmute Audio & Play</button>
+                    <p>The game is loaded and running! Click to unmute sound and start playing.</p>
+                </div>
 
-            <!-- Buffering Spinner Overlay -->
-            <div id="buffering-spinner" class="overlay hidden" style="background-color: rgba(22, 22, 30, 0.4); display: none; flex-direction: column; align-items: center; justify-content: center;">
-                <div style="border: 4px solid rgba(122, 162, 247, 0.1); border-left-color: #7aa2f7; border-radius: 50%; width: 36px; height: 36px; animation: spin 1s linear infinite;"></div>
-                <style>
-                    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-                </style>
-                <p style="margin-top: 8px; font-size: 0.85rem; color: #7aa2f7; font-weight: 600;">Buffering...</p>
-            </div>
+                <!-- Buffering Spinner Overlay -->
+                <div id="buffering-spinner" class="overlay hidden" style="background-color: rgba(22, 22, 30, 0.4); display: none; flex-direction: column; align-items: center; justify-content: center;">
+                    <div style="border: 4px solid rgba(122, 162, 247, 0.1); border-left-color: #7aa2f7; border-radius: 50%; width: 36px; height: 36px; animation: spin 1s linear infinite;"></div>
+                    <style>
+                        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+                    </style>
+                    <p style="margin-top: 8px; font-size: 0.85rem; color: #7aa2f7; font-weight: 600;">Buffering...</p>
+                </div>
 
-            <!-- Emulation Canvas (Default to Crisp Pixel Art) -->
-            <canvas id="nes-canvas" class="crisp" width="256" height="240"></canvas>
-        </div>
-            <button id="btn-fullscreen" class="btn-fullscreen">📺 Full Screen</button>
-        </div>
+                <!-- Emulation Canvas (Default to Crisp Pixel Art) -->
+                <canvas id="nes-canvas" class="crisp" width="256" height="240"></canvas>
 
-        <!-- Right Sidebar for Controls -->
-        <div class="sidebar">
-            <!-- Graphics Filter Control -->
-            <div class="display-controls">
-                <div class="control-group" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
-                    <div style="display: flex; flex-direction: column; gap: 4px;">
-                        <span class="control-label">Graphics Filter</span>
-                        <div class="btn-group" id="filter-group">
-                            <button class="btn-control active" id="btn-filter-crisp">Crisp</button>
-                            <button class="btn-control" id="btn-filter-smooth">Smooth</button>
-                        </div>
-                    </div>
-                    
-                    <button id="btn-reset" class="btn-circular" title="Reset Emulator" style="margin: 0; flex-shrink: 0;">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <!-- Floating HUD Control Overlay Bar -->
+                <div id="emulator-hud" class="hud-bar">
+                    <!-- Circular Reset -->
+                    <button id="btn-reset" class="hud-btn-circular" title="Reset Emulator">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
                             <path d="M3 3v5h5"/>
                         </svg>
                     </button>
+                    
+                    <div class="hud-separator"></div>
+                    
+                    <!-- Circular Single Graphics Filter Toggle -->
+                    <button id="btn-toggle-filter" class="hud-btn-circular" title="Toggle Graphics Filter (Switch to Smooth)">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="10"/>
+                            <path d="M12 2a7 7 0 1 0 10 10"/>
+                        </svg>
+                    </button>
+                    
+                    <div class="hud-separator"></div>
+                    
+                    <!-- Open ROM Library Modal -->
+                    <button id="btn-open-library" class="hud-btn-circular" title="Open ROM Library (📚)">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20M4 19.5A2.5 2.5 0 0 0 6.5 22H20M4 19.5L4 5A2.5 2.5 0 0 1 6.5 2.5H20M20 2.5v19.5"/>
+                        </svg>
+                    </button>
+                    
+                    <!-- Open Multiplayer Modal -->
+                    <button id="btn-open-multiplayer" class="hud-btn-circular" title="Open Multiplayer Lobby (🎮)">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="2" y="6" width="20" height="12" rx="2"/>
+                            <path d="M6 12h4m-2-2v4m7-2h.01M18 10h.01"/>
+                        </svg>
+                    </button>
+                    
+                    <!-- Open Keyboard Config Modal -->
+                    <button id="btn-open-key-config" class="hud-btn-circular" title="Configure Controls (⌨️)">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="2" y="4" width="20" height="16" rx="2" ry="2"/>
+                            <line x1="6" y1="8" x2="6" y2="8"/><line x1="10" y1="8" x2="10" y2="8"/><line x1="14" y1="8" x2="14" y2="8"/><line x1="18" y1="8" x2="18" y2="8"/>
+                            <line x1="6" y1="12" x2="6" y2="12"/><line x1="10" y1="12" x2="10" y2="12"/><line x1="14" y1="12" x2="14" y2="12"/><line x1="18" y1="12" x2="18" y2="12"/>
+                            <line x1="7" y1="16" x2="17" y2="16"/>
+                        </svg>
+                    </button>
+                    
+                    <div class="hud-separator"></div>
+                    
+                    <!-- Symmetrical Box-Arrow Savestate Save (Download Arrow) -->
+                    <button id="btn-save-state" class="hud-btn-circular" title="Save State (F5)">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                            <polyline points="7 10 12 15 17 10"/>
+                            <line x1="12" y1="15" x2="12" y2="3"/>
+                        </svg>
+                    </button>
+                    
+                    <!-- Symmetrical Box-Arrow Savestate Load (Upload Arrow) -->
+                    <button id="btn-load-state" class="hud-btn-circular" title="Load State (F9)">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                            <polyline points="17 8 12 3 7 8"/>
+                            <line x1="12" y1="3" x2="12" y2="15"/>
+                        </svg>
+                    </button>
+                    
+                    <div class="hud-separator"></div>
+                    
+                    <!-- Fullscreen Toggle -->
+                    <button id="btn-fullscreen" class="hud-btn-circular" title="Toggle Fullscreen">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+                        </svg>
+                    </button>
                 </div>
             </div>
+        </div>
 
-            <!-- Save States Panel -->
-            <div class="display-controls" id="savestate-panel" style="margin-top: 8px;">
-                <div class="control-group">
-                    <span class="control-label">Save States</span>
-                </div>
-                <div class="control-group" style="gap: 8px; width: 100%;">
-                    <button id="btn-save-state" class="btn-boot" style="flex: 1; background-color: var(--accent-color); color: var(--bg-color); box-shadow: none; font-size: 0.9rem; padding: 8px 16px;">
-                        Save State
-                    </button>
-                    <button id="btn-load-state" class="btn-control" style="flex: 1; border: 1px solid var(--border-color); border-radius: 6px; padding: 8px 16px; font-size: 0.9rem;">
-                        Load State
-                    </button>
-                </div>
-            </div>
-
-            <!-- Multiplayer Connection Panel -->
-            <div class="display-controls" id="multiplayer-panel" style="margin-top: 8px;">
-                <div class="control-group">
-                    <span class="control-label">Multiplayer Connection</span>
-                </div>
-                <div class="control-group" style="flex-direction: column; align-items: stretch; gap: 8px; width: 100%;">
-                    <button id="btn-host-game" class="btn-boot" style="width: 100%; background-color: var(--accent-color); color: var(--bg-color); box-shadow: none; font-size: 0.9rem; padding: 8px 16px;">
-                        Host Game
-                    </button>
-                    <div style="display: flex; gap: 8px; margin-top: 4px; width: 100%;">
-                        <input type="text" id="peer-id-input" placeholder="Enter ID or Room Link" style="flex-grow: 1; background-color: #1a1b26; border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-color); padding: 6px 10px; font-size: 0.85rem; outline: none; min-width: 0;">
-                        <button id="btn-join-game" class="btn-control" style="border: 1px solid var(--border-color); border-radius: 6px; padding: 6px 12px; font-size: 0.85rem;">
-                            Join
-                        </button>
-                    </div>
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px; font-size: 0.8rem; width: 100%;">
-                        <span class="control-label">Status:</span>
-                        <span id="connection-status" style="font-weight: 600; color: var(--text-muted);">Disconnected</span>
-                    </div>
-
-
-                </div>
-            </div>
-
-            <!-- ROM Library & Dropzone Container Overlay -->
-            <div class="controls-container" id="drop-zone" style="gap: 12px; padding: 16px; width: 100%; box-sizing: border-box; position: relative; transition: all 0.2s ease; border-style: dashed; border-width: 1.5px;">
+    <!-- Modal ROM Library Overlay -->
+    <div id="rom-library-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(15, 17, 26, 0.85); z-index: 2000; justify-content: center; align-items: center; backdrop-filter: blur(2px);">
+        <div class="controls-container" style="width: 400px; padding: 20px; border: 2px solid var(--accent-color); background: var(--bg-color); border-radius: 8px; box-shadow: 0 12px 32px rgba(0,0,0,0.6); display: flex; flex-direction: column; gap: 12px; box-sizing: border-box;">
+            <h2 style="font-size: 1.1rem; margin: 0; color: var(--accent-color); text-align: left;">ROM Library</h2>
+            
+            <div class="controls-container" id="drop-zone" style="gap: 12px; padding: 16px; width: 100%; box-sizing: border-box; position: relative; border-style: dashed; border-width: 1.5px; transition: all 0.2s ease;">
                 <input type="file" id="file-input" accept=".nes,.zip">
-
-                <!-- Clean, themed Library Dropdown -->
                 <div style="display: flex; flex-direction: column; gap: 6px; width: 100%;">
-                    <span class="control-label" style="font-size: 0.8rem; letter-spacing: 0.5px; color: var(--text-muted); text-align: left;">
+                    <span class="control-label" style="font-size: 0.8rem; color: var(--text-muted); text-align: left;">
                         ROM LIBRARY <span style="font-size: 0.7rem; opacity: 0.7; font-weight: normal; margin-left: 2px;">(drag .nes/.zip here or <span id="btn-browse-roms" style="text-decoration: underline; cursor: pointer; color: var(--accent-color);">browse</span>)</span>
                     </span>
                     <div style="display: flex; gap: 8px; width: 100%;">
-                        <select id="library-select" style="flex-grow: 1; background-color: #1a1b26; border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-color); padding: 8px 10px; font-size: 0.85rem; outline: none; min-width: 0; cursor: pointer; transition: border-color 0.2s;">
+                        <select id="library-select" style="flex-grow: 1; background-color: #1a1b26; border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-color); padding: 8px 10px; font-size: 0.85rem; outline: none; min-width: 0; cursor: pointer;">
                             <!-- Dynamically populated -->
                         </select>
                         <button id="btn-load-rom" class="btn-control" style="border: 1px solid var(--border-color); border-radius: 6px; padding: 8px 14px; font-size: 0.85rem; cursor: pointer;">
@@ -510,26 +603,37 @@
                     </button>
                 </div>
             </div>
+            
+            <button id="btn-close-library" class="btn-control" style="width: 100%; font-size: 0.8rem; padding: 6px; margin-top: 4px; cursor: pointer;">
+                Close
+            </button>
+        </div>
+    </div>
 
-            <!-- Keyboard Mapping Info -->
-            <div class="info-panel">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                    <h3 style="margin: 0; font-size: 1.0rem; letter-spacing: 0.5px;">Keyboard Mappings</h3>
-                    <button id="btn-open-key-config" class="btn-control" style="padding: 4px 8px; font-size: 0.75rem; cursor: pointer; margin: 0; border-radius: 4px;">⚙️ Customize</button>
+    <!-- Modal Multiplayer Overlay -->
+    <div id="multiplayer-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(15, 17, 26, 0.85); z-index: 2000; justify-content: center; align-items: center; backdrop-filter: blur(2px);">
+        <div class="controls-container" style="width: 360px; padding: 20px; border: 2px solid var(--accent-color); background: var(--bg-color); border-radius: 8px; box-shadow: 0 12px 32px rgba(0,0,0,0.6); display: flex; flex-direction: column; gap: 12px; box-sizing: border-box;">
+            <h2 style="font-size: 1.1rem; margin: 0; color: var(--accent-color); text-align: left;">Multiplayer Connection</h2>
+            
+            <div style="display: flex; flex-direction: column; gap: 8px; width: 100%;">
+                <button id="btn-host-game" class="btn-boot" style="width: 100%; background-color: var(--accent-color); color: var(--bg-color); box-shadow: none; font-size: 0.9rem; padding: 8px 16px; border: none; border-radius: 8px; cursor: pointer;">
+                    Host Game
+                </button>
+                <div style="display: flex; gap: 8px; margin-top: 4px; width: 100%;">
+                    <input type="text" id="peer-id-input" placeholder="Enter 4-digit Lobby Code" style="flex-grow: 1; background-color: #1a1b26; border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-color); padding: 6px 10px; font-size: 0.85rem; outline: none; min-width: 0;">
+                    <button id="btn-join-game" class="btn-control" style="border: 1px solid var(--border-color); border-radius: 6px; padding: 6px 12px; font-size: 0.85rem; cursor: pointer;">
+                        Join
+                    </button>
                 </div>
-                <ul>
-                    <li><span class="btn-label">Up</span><span class="btn-keys"><span class="kbd">ArrowUp</span></span></li>
-                    <li><span class="btn-label">Down</span><span class="btn-keys"><span class="kbd">ArrowDown</span></span></li>
-                    <li><span class="btn-label">Left</span><span class="btn-keys"><span class="kbd">ArrowLeft</span></span></li>
-                    <li><span class="btn-label">Right</span><span class="btn-keys"><span class="kbd">ArrowRight</span></span></li>
-                    <li><span class="btn-label">Button A</span><span class="btn-keys"><span class="kbd">Left Ctrl</span> or <span class="kbd">Z</span></span></li>
-                    <li><span class="btn-label">Button B</span><span class="btn-keys"><span class="kbd">Left Alt</span> or <span class="kbd">X</span></span></li>
-                    <li><span class="btn-label">Select</span><span class="btn-keys"><span class="kbd">Space</span></span></li>
-                    <li><span class="btn-label">Start</span><span class="btn-keys"><span class="kbd">Enter</span></span></li>
-                    <li><span class="btn-label">Quick Save</span><span class="btn-keys"><span class="kbd">F5</span></span></li>
-                    <li><span class="btn-label">Quick Load</span><span class="btn-keys"><span class="kbd">F9</span></span></li>
-                </ul>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px; font-size: 0.8rem; width: 100%;">
+                    <span class="control-label" style="color: var(--text-muted);">Status:</span>
+                    <span id="connection-status" style="font-weight: 600; color: var(--text-muted);">Disconnected</span>
+                </div>
             </div>
+            
+            <button id="btn-close-multiplayer" class="btn-control" style="width: 100%; font-size: 0.8rem; padding: 6px; margin-top: 4px; cursor: pointer;">
+                Close
+            </button>
         </div>
     </div>
 

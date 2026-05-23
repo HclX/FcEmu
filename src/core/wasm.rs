@@ -328,7 +328,7 @@ impl WasmEmulator {
             if let Some(ref mut cart) = self.bus.cartridge {
                 match cart.load_state(&state[idx..idx + cart_state_len]) {
                     Ok(read_bytes) => {
-                        idx += read_bytes;
+                        let _ = read_bytes;
                     }
                     Err(_) => return false,
                 }

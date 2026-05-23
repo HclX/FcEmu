@@ -1177,21 +1177,24 @@ if (btnReset) {
     });
 }
 
-// Graphics Filter Toggle Listeners
-const btnFilterCrisp = document.getElementById("btn-filter-crisp");
-const btnFilterSmooth = document.getElementById("btn-filter-smooth");
+// Single Graphics Filter Toggle Listener
+const btnToggleFilter = document.getElementById("btn-toggle-filter");
 
-if (btnFilterCrisp && btnFilterSmooth) {
-    btnFilterCrisp.addEventListener("click", () => {
-        btnFilterCrisp.classList.add("active");
-        btnFilterSmooth.classList.remove("active");
-        canvas.classList.add("crisp");
-    });
-
-    btnFilterSmooth.addEventListener("click", () => {
-        btnFilterSmooth.classList.add("active");
-        btnFilterCrisp.classList.remove("active");
-        canvas.classList.remove("crisp");
+if (btnToggleFilter) {
+    btnToggleFilter.addEventListener("click", () => {
+        if (canvas.classList.contains("crisp")) {
+            // Switch to Smooth
+            canvas.classList.remove("crisp");
+            btnToggleFilter.classList.add("active");
+            btnToggleFilter.title = "Toggle Graphics Filter (Switch to Crisp)";
+            console.log("[FcEmu] Graphics filter set to Smooth.");
+        } else {
+            // Switch to Crisp (Default)
+            canvas.classList.add("crisp");
+            btnToggleFilter.classList.remove("active");
+            btnToggleFilter.title = "Toggle Graphics Filter (Switch to Smooth)";
+            console.log("[FcEmu] Graphics filter set to Crisp.");
+        }
     });
 }
 
@@ -1213,6 +1216,56 @@ function toggleFullscreen() {
     } else {
         document.exitFullscreen();
     }
+}
+
+// ROM Library Modal Overlay Toggle
+const btnOpenLibrary = document.getElementById("btn-open-library");
+const romLibraryModal = document.getElementById("rom-library-modal");
+const btnCloseLibrary = document.getElementById("btn-close-library");
+
+if (btnOpenLibrary && romLibraryModal) {
+    btnOpenLibrary.addEventListener("click", () => {
+        romLibraryModal.style.display = "flex";
+    });
+}
+
+if (btnCloseLibrary && romLibraryModal) {
+    btnCloseLibrary.addEventListener("click", () => {
+        romLibraryModal.style.display = "none";
+    });
+}
+
+if (romLibraryModal) {
+    romLibraryModal.addEventListener("click", (e) => {
+        if (e.target === romLibraryModal) {
+            romLibraryModal.style.display = "none";
+        }
+    });
+}
+
+// Multiplayer Modal Overlay Toggle
+const btnOpenMultiplayer = document.getElementById("btn-open-multiplayer");
+const multiplayerModal = document.getElementById("multiplayer-modal");
+const btnCloseMultiplayer = document.getElementById("btn-close-multiplayer");
+
+if (btnOpenMultiplayer && multiplayerModal) {
+    btnOpenMultiplayer.addEventListener("click", () => {
+        multiplayerModal.style.display = "flex";
+    });
+}
+
+if (btnCloseMultiplayer && multiplayerModal) {
+    btnCloseMultiplayer.addEventListener("click", () => {
+        multiplayerModal.style.display = "none";
+    });
+}
+
+if (multiplayerModal) {
+    multiplayerModal.addEventListener("click", (e) => {
+        if (e.target === multiplayerModal) {
+            multiplayerModal.style.display = "none";
+        }
+    });
 }
 
 // ==========================================
