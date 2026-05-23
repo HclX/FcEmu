@@ -266,6 +266,141 @@ impl Mapper for Mapper1 {
     }
 }
 
+/// Mapper227 (Multicart / Chinese pirate board) mapping logic.
+/// PRG ROM: Up to 1MB.
+/// CHR RAM: 8KB.
+pub struct Mapper227 {
+    _prg_banks: u8,
+    _chr_banks: u8,
+    latch: u16, // Holds the 16-bit latched address written to $8000-$FFFF
+}
+
+impl Mapper227 {
+    pub fn new(prg_banks: u8, chr_banks: u8) -> Self {
+        Self {
+            _prg_banks: prg_banks,
+            _chr_banks: chr_banks,
+            latch: 0, // Power-on default value: 0
+        }
+    }
+}
+
+impl Mapper for Mapper227 {
+    fn map_cpu_read(&self, addr: u16) -> Option<usize> {
+        if addr >= 0x8000 {
+            let outer_bank = ((self.latch >> 5) & 0x07) as usize;
+            let inner_bank = ((self.latch >> 2) & 0x07) as usize;
+            let s = self.latch & 0x01;
+            let o = (self.latch >> 7) & 0x01;
+            let l = (self.latch >> 9) & 0x01;
+
+            let bank_16k = if addr < 0xC000 {
+                // range $8000-$BFFF
+                if o == 1 {
+                    if s == 1 {
+                        // NROM-256 Mode
+                        (inner_bank & 0x06) | ((addr >> 14) & 0x01) as usize
+                    } else {
+                        // NROM-128 Mode
+                        inner_bank
+                    }
+                } else {
+                    if s == 1 {
+                        // PRG A14 is fixed to 0
+                        inner_bank & 0x06
+                    } else {
+                        inner_bank
+                    }
+                }
+            } else {
+                // range $C000-$FFFF
+                if o == 1 {
+                    if s == 1 {
+                        // NROM-256 Mode
+                        (inner_bank & 0x06) | 0x01
+                    } else {
+                        // NROM-128 Mode (mirrored)
+                        inner_bank
+                    }
+                } else {
+                    if l == 1 {
+                        // UNROM Mode: fixed inner bank 7
+                        7
+                    } else {
+                        // Fixed low bank 0
+                        0
+                    }
+                }
+            };
+
+            // 16KB bank selection offset inside 128KB outer block
+            let offset = (outer_bank * 128 * 1024) + (bank_16k * 16 * 1024) + (addr as usize & 0x3FFF);
+            Some(offset)
+        } else if (0x6000..=0x7FFF).contains(&addr) {
+            // Some Mapper 227 carts have 8KB battery WRAM
+            Some((addr - 0x6000) as usize)
+        } else {
+            None
+        }
+    }
+
+    fn map_cpu_write(&mut self, addr: u16, _val: u8) -> Option<usize> {
+        if addr >= 0x8000 {
+            // Address Latch: the written CPU address acts as the latch data register!
+            self.latch = addr;
+            None
+        } else if (0x6000..=0x7FFF).contains(&addr) {
+            Some((addr - 0x6000) as usize)
+        } else {
+            None
+        }
+    }
+
+    fn map_ppu_read(&self, addr: u16) -> Option<usize> {
+        if addr < 0x2000 {
+            // 8KB unbanked CHR RAM
+            Some(addr as usize)
+        } else {
+            None
+        }
+    }
+
+    fn map_ppu_write(&mut self, addr: u16, _val: u8) -> Option<usize> {
+        if addr < 0x2000 {
+            let o = (self.latch >> 7) & 0x01;
+            if o == 1 {
+                // CHR-RAM is write-protected in NROM modes (O == 1)
+                None
+            } else {
+                Some(addr as usize)
+            }
+        } else {
+            None
+        }
+    }
+
+    fn mirroring(&self) -> Option<MirroringMode> {
+        let m = (self.latch >> 1) & 0x01;
+        if m != 0 {
+            Some(MirroringMode::Horizontal)
+        } else {
+            Some(MirroringMode::Vertical)
+        }
+    }
+
+    fn save_state(&self) -> Vec<u8> {
+        let mut state = Vec::with_capacity(2);
+        state.extend_from_slice(&self.latch.to_le_bytes());
+        state
+    }
+
+    fn load_state(&mut self, state: &[u8]) {
+        if state.len() >= 2 {
+            self.latch = u16::from_le_bytes(state[0..2].try_into().unwrap());
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -311,5 +446,56 @@ mod tests {
         mapper.map_cpu_write(0xE000, 0x80);
         assert_eq!(mapper.shift_reg, 0x10);
         assert_eq!(mapper.write_count, 0);
+    }
+
+    #[test]
+    fn test_mapper227_bankswitching() {
+        let mut mapper = Mapper227::new(32, 0); // 512KB PRG-ROM, CHR-RAM
+
+        // Test Case 1: Reset / Power-On Default (UNROM-like with fixed bank 0)
+        // Latch = 0 (o = 0, s = 0, l = 0, outer = 0, inner = 0)
+        // CPU $8000-$BFFF maps to inner bank 0, block 0 -> offset 0
+        assert_eq!(mapper.map_cpu_read(0x8000), Some(0));
+        // CPU $C000-$FFFF maps to fixed bank 0, block 0 -> offset 0
+        assert_eq!(mapper.map_cpu_read(0xC000), Some(0));
+        // Mirroring should be Vertical (M = 0)
+        assert_eq!(mapper.mirroring(), Some(MirroringMode::Vertical));
+
+        // Test Case 2: NROM-128 Mode (O = 1, S = 0, Inner Bank = 3, Outer Block = 2, Mirror = Horizontal)
+        // Latch Bits:
+        // Outer (Bits 7,6,5) = 2 (binary 010) -> 2 << 5 = 0x40
+        // Inner (Bits 4,3,2) = 3 (binary 011) -> 3 << 2 = 0x0C
+        // Mirror (Bit 1) = 1 -> 1 << 1 = 0x02
+        // S (Bit 0) = 0 -> 0
+        // O (Bit 7) = 1 -> 1 << 7 = 0x80
+        // Total Latch Address = 0x80 | 0x40 | 0x0C | 0x02 = 0xC4e => Write to 0x8000 + 0xC4e = 0x8C4E
+        // Let's do a simple direct test: write 0x8000 | 0x00C2 (O=1, outer=6, inner=0, mirror=1, s=0)
+        mapper.map_cpu_write(0x80C2, 0);
+        assert_eq!(mapper.mirroring(), Some(MirroringMode::Horizontal));
+        // NROM-128 mode: CPU $8000 maps to inner bank PPp = 0 inside outer block 6 -> offset 6 * 128KB = 768KB
+        assert_eq!(mapper.map_cpu_read(0x8000), Some(6 * 128 * 1024));
+        // CPU $C000 maps to mirrored PPp = 0 inside outer 6 -> offset 768KB
+        assert_eq!(mapper.map_cpu_read(0xC000), Some(6 * 128 * 1024));
+        // CHR-RAM should be write-protected (O = 1)
+        assert_eq!(mapper.map_ppu_write(0x1000, 0xAA), None);
+
+        // Test Case 3: NROM-256 Mode (O = 1, S = 1, Inner Bank = 4, Outer Block = 1)
+        // Latch address: O=1 (0x80), S=1 (0x01), Inner=4 (0x10), Outer=1 (0x20) -> latch = 0xB1
+        mapper.map_cpu_write(0x80B1, 0);
+        // CPU A14 determines A14 line:
+        // CPU $8000 (A14=0) -> bank 4 (inner 4 & 6 = 4) -> offset 5 * 128KB + 4 * 16KB = 720896 bytes
+        assert_eq!(mapper.map_cpu_read(0x8000), Some(5 * 128 * 1024 + 4 * 16 * 1024));
+        // CPU $C000 (A14=1) -> bank 5 (inner 4 | 1 = 5) -> offset 5 * 128KB + 5 * 16KB = 737280 bytes
+        assert_eq!(mapper.map_cpu_read(0xC000), Some(5 * 128 * 1024 + 5 * 16 * 1024));
+
+        // Test Case 4: UNROM Mode (O = 0, L = 1, Inner Bank = 3, Outer Block = 0)
+        // Latch address: O=0, L=1 (0x200 -> Bit 9!), Inner=3 (0x0C) -> latch = 0x020C
+        mapper.map_cpu_write(0x820C, 0);
+        // CPU $8000 maps to switchable inner bank 3 -> offset 3 * 16KB = 48KB
+        assert_eq!(mapper.map_cpu_read(0x8000), Some(3 * 16 * 1024));
+        // CPU $C000 maps to fixed inner bank #7 -> offset 7 * 16KB = 112KB
+        assert_eq!(mapper.map_cpu_read(0xC000), Some(7 * 16 * 1024));
+        // CHR-RAM write should be enabled (O = 0)
+        assert_eq!(mapper.map_ppu_write(0x1000, 0xAA), Some(0x1000));
     }
 }

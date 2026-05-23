@@ -166,7 +166,26 @@ To dynamically clock notes and envelopes:
 *   **Quarter Frame (240Hz / ~7,457 CPU cycles)**: Clocks the Triangle linear counter.
 *   **Half Frame (120Hz / ~14,914 CPU cycles)**: Clocks `length_counter` decays for the Pulse 1, Pulse 2, Triangle, and Noise channels, automatically silencing note outputs when complete.
 
+### 4.4 iNES Mapper 227 (Multicart / Pirate PCB)
+Used primarily for various "X-in-1" multicarts (e.g. *1200-in-1*), Mapper 227 employs an **address-latch-based register** mapping CPU writes in the range `$8000–$FFFF`.
+
+#### Address Latch Configuration
+```
+[Bit 15..11] [Bit 10] [Bit 9] [Bit 8] [Bit 7] [Bit 6..5] [Bit 4..2] [Bit 1] [Bit 0]
+    Unused      m        L       Q       O       Q Q       P P p       M       S
+```
+*   **Bit 0 (S)**: PRG A14 Mode (`0` = fixed to bit `p`, `1` = mapped to CPU A14 for 32KB pages).
+*   **Bit 1 (M)**: Mirroring Select (`0` = Vertical mirroring, `1` = Horizontal mirroring).
+*   **Bit 4..2 (P, p, p)**: PRG A16..A14 (Inner 16KB bank selection).
+*   **Bit 7..5 (O, Q, Q)**: PRG A19..A17 (Outer 128KB block selection).
+*   **Bit 7 (O)**: Mode Indicator (`1` = NROM-128/256 modes, `0` = UNROM modes).
+*   **Bit 9 (L)**: UNROM Fixed High/Low Page Select (`0` = fixed low bank #0, `1` = fixed high bank #7).
+
+#### CHR-RAM Protection
+*   When mode bit `O` = 1, the 8KB CHR-RAM is write-protected (blocking menu-code corruptions). When `O` = 0, CHR-RAM writes are enabled.
+
 ---
+
 
 ## 5. WebAssembly (WASM) Client-Side Architecture
 
