@@ -195,24 +195,79 @@ const BUTTON_DOWN = 1 << 5;
 const BUTTON_LEFT = 1 << 6;
 const BUTTON_RIGHT = 1 << 7;
 
-// Keyboard Event mappings to Joypad bits
-const KEY_MAP = {
-    "ControlLeft": BUTTON_A,
-    "KeyZ": BUTTON_A,
-    "AltLeft": BUTTON_B,
-    "KeyX": BUTTON_B,
-    "Space": BUTTON_SELECT,
-    "Enter": BUTTON_START,
-    "ArrowUp": BUTTON_UP,
-    "ArrowDown": BUTTON_DOWN,
-    "ArrowLeft": BUTTON_LEFT,
-    "ArrowRight": BUTTON_RIGHT
+// Default Keyboard Event mappings to Joypad bits
+const DEFAULT_KEY_BINDINGS = {
+    "UP": "ArrowUp",
+    "DOWN": "ArrowDown",
+    "LEFT": "ArrowLeft",
+    "RIGHT": "ArrowRight",
+    "A": "KeyZ",
+    "B": "KeyX",
+    "SELECT": "Space",
+    "START": "Enter"
 };
 
-let controllerState = 0;
+let keyBindings = { ...DEFAULT_KEY_BINDINGS };
+let KEY_MAP = {};
+
+function updateKeyMap() {
+    KEY_MAP = {
+        [keyBindings.UP]: BUTTON_UP,
+        [keyBindings.DOWN]: BUTTON_DOWN,
+        [keyBindings.LEFT]: BUTTON_LEFT,
+        [keyBindings.RIGHT]: BUTTON_RIGHT,
+        [keyBindings.A]: BUTTON_A,
+        [keyBindings.B]: BUTTON_B,
+        [keyBindings.SELECT]: BUTTON_SELECT,
+        [keyBindings.START]: BUTTON_START
+    };
+}
+
+function loadKeyBindings() {
+    const saved = localStorage.getItem("nes_key_bindings");
+    if (saved) {
+        try {
+            const parsed = JSON.parse(saved);
+            for (const key in DEFAULT_KEY_BINDINGS) {
+                if (parsed[key]) {
+                    keyBindings[key] = parsed[key];
+                }
+            }
+        } catch (e) {
+            console.error("Failed to parse saved key bindings, using defaults", e);
+        }
+    }
+    updateKeyMap();
+    updateKeyboardUI();
+}
+
+function saveKeyBindings() {
+    localStorage.setItem("nes_key_bindings", JSON.stringify(keyBindings));
+}
+
+// Configurator State
+let activeConfigButton = null; // Stores the DOM element currently listening
 
 // Setup event listeners for keyboard input
 window.addEventListener("keydown", (event) => {
+    // If we are listening for a new key binding
+    if (activeConfigButton) {
+        event.preventDefault();
+        const targetButton = activeConfigButton.dataset.button;
+        const newCode = event.code;
+
+        // Update bindings
+        keyBindings[targetButton] = newCode;
+        saveKeyBindings();
+        updateKeyMap();
+        updateKeyboardUI();
+
+        // Reset listening state
+        activeConfigButton.classList.remove("listening");
+        activeConfigButton = null;
+        return;
+    }
+
     if (KEY_MAP[event.code] !== undefined) {
         controllerState |= KEY_MAP[event.code];
         event.preventDefault();
@@ -225,6 +280,93 @@ window.addEventListener("keyup", (event) => {
         event.preventDefault();
     }
 });
+
+// Helper to update UI elements with current bindings
+function updateKeyboardUI() {
+    // Update the configurator buttons
+    for (const key in keyBindings) {
+        const el = document.getElementById(`kbd-${key}`);
+        if (el) {
+            el.textContent = formatKeyName(keyBindings[key]);
+        }
+    }
+
+    // Update the static visual guide as well
+    const guideList = document.querySelector(".info-panel ul");
+    if (guideList) {
+        guideList.innerHTML = `
+            <li><span class="btn-label">Up</span><span class="btn-keys"><span class="kbd">${formatKeyName(keyBindings.UP)}</span></span></li>
+            <li><span class="btn-label">Down</span><span class="btn-keys"><span class="kbd">${formatKeyName(keyBindings.DOWN)}</span></span></li>
+            <li><span class="btn-label">Left</span><span class="btn-keys"><span class="kbd">${formatKeyName(keyBindings.LEFT)}</span></span></li>
+            <li><span class="btn-label">Right</span><span class="btn-keys"><span class="kbd">${formatKeyName(keyBindings.RIGHT)}</span></span></li>
+            <li><span class="btn-label">Button A</span><span class="btn-keys"><span class="kbd">${formatKeyName(keyBindings.A)}</span></span></li>
+            <li><span class="btn-label">Button B</span><span class="btn-keys"><span class="kbd">${formatKeyName(keyBindings.B)}</span></span></li>
+            <li><span class="btn-label">Select</span><span class="btn-keys"><span class="kbd">${formatKeyName(keyBindings.SELECT)}</span></span></li>
+            <li><span class="btn-label">Start</span><span class="btn-keys"><span class="kbd">${formatKeyName(keyBindings.START)}</span></span></li>
+        `;
+    }
+}
+
+// Helper to format key codes to nice names
+function formatKeyName(code) {
+    if (code.startsWith("Key")) {
+        return code.substring(3);
+    }
+    if (code.startsWith("Digit")) {
+        return code.substring(5);
+    }
+    if (code.startsWith("Arrow")) {
+        return code.substring(5);
+    }
+    if (code === "ControlLeft") return "Left Ctrl";
+    if (code === "ControlRight") return "Right Ctrl";
+    if (code === "AltLeft") return "Left Alt";
+    if (code === "AltRight") return "Right Alt";
+    return code;
+}
+
+// Setup UI Configurator Event Listeners
+const configButtons = document.querySelectorAll(".key-config-btn");
+configButtons.forEach(btn => {
+    btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        
+        // If already listening, cancel it
+        if (activeConfigButton) {
+            activeConfigButton.classList.remove("listening");
+            const oldBtn = activeConfigButton.dataset.button;
+            activeConfigButton.querySelector(".kbd").textContent = formatKeyName(keyBindings[oldBtn]);
+        }
+
+        if (activeConfigButton === btn) {
+            activeConfigButton = null;
+            return;
+        }
+
+        activeConfigButton = btn;
+        btn.classList.add("listening");
+        btn.querySelector(".kbd").textContent = "Listening...";
+    });
+});
+
+const resetBtn = document.getElementById("btn-reset-controls");
+if (resetBtn) {
+    resetBtn.addEventListener("click", () => {
+        if (activeConfigButton) {
+            activeConfigButton.classList.remove("listening");
+            activeConfigButton = null;
+        }
+        keyBindings = { ...DEFAULT_KEY_BINDINGS };
+        saveKeyBindings();
+        updateKeyMap();
+        updateKeyboardUI();
+    });
+}
+
+// Load bindings initially
+loadKeyBindings();
+
+let controllerState = 0;
 
 // Initialize the WASM Module
 async function initWasm() {

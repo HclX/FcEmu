@@ -291,6 +291,26 @@
             font-size: 0.8rem;
             color: var(--accent-hover);
         }
+
+        details summary::-webkit-details-marker {
+            display: none;
+        }
+        details[open] #config-arrow {
+            transform: rotate(180deg);
+        }
+        #config-arrow {
+            transition: transform 0.2s ease;
+        }
+        .key-config-btn.listening {
+            background-color: rgba(122, 162, 247, 0.2) !important;
+            border-color: var(--accent-color) !important;
+            color: var(--accent-hover) !important;
+            animation: pulse 1s infinite alternate;
+        }
+        @keyframes pulse {
+            from { opacity: 0.6; }
+            to { opacity: 1; }
+        }
     </style>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -377,6 +397,47 @@
                         🗑️ Delete Selected ROM
                     </button>
                 </div>
+            </div>
+
+            <!-- Keyboard Configuration Panel -->
+            <div class="display-controls" id="keyboard-config-panel" style="margin-top: 8px;">
+                <details id="keyboard-config-details">
+                    <summary class="control-label" style="cursor: pointer; list-style: none; display: flex; justify-content: space-between; align-items: center; outline: none;">
+                        <span>Configure Controls</span>
+                        <span id="config-arrow">▼</span>
+                    </summary>
+                    <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 12px; width: 100%;">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%;">
+                            <button class="btn-control key-config-btn" data-button="UP" style="padding: 8px; font-size: 0.8rem; text-align: left; display: flex; justify-content: space-between; cursor: pointer;">
+                                <span>Up:</span> <span class="kbd" id="kbd-UP">ArrowUp</span>
+                            </button>
+                            <button class="btn-control key-config-btn" data-button="DOWN" style="padding: 8px; font-size: 0.8rem; text-align: left; display: flex; justify-content: space-between; cursor: pointer;">
+                                <span>Down:</span> <span class="kbd" id="kbd-DOWN">ArrowDown</span>
+                            </button>
+                            <button class="btn-control key-config-btn" data-button="LEFT" style="padding: 8px; font-size: 0.8rem; text-align: left; display: flex; justify-content: space-between; cursor: pointer;">
+                                <span>Left:</span> <span class="kbd" id="kbd-LEFT">ArrowLeft</span>
+                            </button>
+                            <button class="btn-control key-config-btn" data-button="RIGHT" style="padding: 8px; font-size: 0.8rem; text-align: left; display: flex; justify-content: space-between; cursor: pointer;">
+                                <span>Right:</span> <span class="kbd" id="kbd-RIGHT">ArrowRight</span>
+                            </button>
+                            <button class="btn-control key-config-btn" data-button="A" style="padding: 8px; font-size: 0.8rem; text-align: left; display: flex; justify-content: space-between; cursor: pointer;">
+                                <span>A:</span> <span class="kbd" id="kbd-A">KeyZ</span>
+                            </button>
+                            <button class="btn-control key-config-btn" data-button="B" style="padding: 8px; font-size: 0.8rem; text-align: left; display: flex; justify-content: space-between; cursor: pointer;">
+                                <span>B:</span> <span class="kbd" id="kbd-B">KeyX</span>
+                            </button>
+                            <button class="btn-control key-config-btn" data-button="SELECT" style="padding: 8px; font-size: 0.8rem; text-align: left; display: flex; justify-content: space-between; cursor: pointer;">
+                                <span>Select:</span> <span class="kbd" id="kbd-SELECT">Space</span>
+                            </button>
+                            <button class="btn-control key-config-btn" data-button="START" style="padding: 8px; font-size: 0.8rem; text-align: left; display: flex; justify-content: space-between; cursor: pointer;">
+                                <span>Start:</span> <span class="kbd" id="kbd-START">Enter</span>
+                            </button>
+                        </div>
+                        <button id="btn-reset-controls" class="btn-control" style="background-color: rgba(247, 118, 142, 0.15); border-color: #f7768e; color: #f7768e; width: 100%; font-size: 0.8rem; padding: 6px; margin-top: 4px; border-radius: 4px; cursor: pointer;">
+                            Reset to Defaults
+                        </button>
+                    </div>
+                </details>
             </div>
 
             <!-- Keyboard Mapping Info -->
