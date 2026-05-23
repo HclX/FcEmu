@@ -55,7 +55,8 @@ const fileInput = document.getElementById("file-input");
 const DB_NAME = "FcEmuDB";
 const STORE_NAME = "sram_saves";
 const ROM_STORE_NAME = "user_roms";
-const DB_VERSION = 2;
+const SAVE_STATE_STORE_NAME = "save_states";
+const DB_VERSION = 3;
 
 function openDB() {
     return new Promise((resolve, reject) => {
@@ -67,6 +68,9 @@ function openDB() {
             }
             if (!db.objectStoreNames.contains(ROM_STORE_NAME)) {
                 db.createObjectStore(ROM_STORE_NAME, { keyPath: "romHash" });
+            }
+            if (!db.objectStoreNames.contains(SAVE_STATE_STORE_NAME)) {
+                db.createObjectStore(SAVE_STATE_STORE_NAME, { keyPath: "romHash" });
             }
         };
         request.onsuccess = (event) => resolve(event.target.result);
@@ -139,6 +143,36 @@ async function loadSRAMFromDB(romHash) {
         request.onsuccess = () => {
             const record = request.result;
             resolve(record ? record.sramData : null);
+        };
+        request.onerror = () => reject(request.error);
+    });
+}
+
+async function saveSaveStateToDB(romHash, stateData) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction(SAVE_STATE_STORE_NAME, "readwrite");
+        const store = transaction.objectStore(SAVE_STATE_STORE_NAME);
+        const record = {
+            romHash: romHash,
+            stateData: stateData, // Uint8Array
+            updatedAt: Date.now()
+        };
+        const request = store.put(record);
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
+    });
+}
+
+async function loadSaveStateFromDB(romHash) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction(SAVE_STATE_STORE_NAME, "readonly");
+        const store = transaction.objectStore(SAVE_STATE_STORE_NAME);
+        const request = store.get(romHash);
+        request.onsuccess = () => {
+            const record = request.result;
+            resolve(record ? record.stateData : null);
         };
         request.onerror = () => reject(request.error);
     });
@@ -280,6 +314,14 @@ window.addEventListener("keydown", (event) => {
     if (KEY_MAP[event.code] !== undefined) {
         controllerState |= KEY_MAP[event.code];
         event.preventDefault();
+    }
+    if (event.code === "F5") {
+        event.preventDefault();
+        saveState();
+    }
+    if (event.code === "F9") {
+        event.preventDefault();
+        loadState();
     }
 });
 
@@ -1639,6 +1681,55 @@ if (roomParam) {
             connectToHost(targetId);
         });
     }
+}
+
+async function saveState() {
+    if (!emulator || !currentRomHash) {
+        console.warn("[FcEmu] No active emulator or ROM to save state.");
+        return;
+    }
+    try {
+        const stateBuffer = emulator.save_state();
+        await saveSaveStateToDB(currentRomHash, stateBuffer);
+        console.log(`[FcEmu] State saved successfully (${stateBuffer.length} bytes).`);
+    } catch (err) {
+        console.error("[FcEmu] Failed to save state:", err);
+        alert("Failed to save state.");
+    }
+}
+
+async function loadState() {
+    if (!emulator || !currentRomHash) {
+        console.warn("[FcEmu] No active emulator or ROM to load state.");
+        return;
+    }
+    try {
+        const stateData = await loadSaveStateFromDB(currentRomHash);
+        if (stateData) {
+            const success = emulator.load_state(stateData);
+            if (success) {
+                console.log("[FcEmu] State loaded successfully.");
+            } else {
+                console.error("[FcEmu] Emulator failed to load state.");
+                alert("Failed to load state: Emulator error.");
+            }
+        } else {
+            alert("No saved state found for this ROM.");
+        }
+    } catch (err) {
+        console.error("[FcEmu] Failed to load state:", err);
+        alert("Failed to load state.");
+    }
+}
+
+// Bind Savestate UI Buttons
+const btnSaveState = document.getElementById("btn-save-state");
+const btnLoadState = document.getElementById("btn-load-state");
+if (btnSaveState) {
+    btnSaveState.addEventListener("click", saveState);
+}
+if (btnLoadState) {
+    btnLoadState.addEventListener("click", loadState);
 }
 
 // Apply base sizing and initialize WASM Emulator core
