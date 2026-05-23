@@ -399,50 +399,12 @@
                 </div>
             </div>
 
-            <!-- Keyboard Configuration Panel -->
-            <div class="display-controls" id="keyboard-config-panel" style="margin-top: 8px;">
-                <details id="keyboard-config-details">
-                    <summary class="control-label" style="cursor: pointer; list-style: none; display: flex; justify-content: space-between; align-items: center; outline: none;">
-                        <span>Configure Controls</span>
-                        <span id="config-arrow">▼</span>
-                    </summary>
-                    <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 12px; width: 100%;">
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%;">
-                            <button class="btn-control key-config-btn" data-button="UP" style="padding: 8px; font-size: 0.8rem; text-align: left; display: flex; justify-content: space-between; cursor: pointer;">
-                                <span>Up:</span> <span class="kbd" id="kbd-UP">ArrowUp</span>
-                            </button>
-                            <button class="btn-control key-config-btn" data-button="DOWN" style="padding: 8px; font-size: 0.8rem; text-align: left; display: flex; justify-content: space-between; cursor: pointer;">
-                                <span>Down:</span> <span class="kbd" id="kbd-DOWN">ArrowDown</span>
-                            </button>
-                            <button class="btn-control key-config-btn" data-button="LEFT" style="padding: 8px; font-size: 0.8rem; text-align: left; display: flex; justify-content: space-between; cursor: pointer;">
-                                <span>Left:</span> <span class="kbd" id="kbd-LEFT">ArrowLeft</span>
-                            </button>
-                            <button class="btn-control key-config-btn" data-button="RIGHT" style="padding: 8px; font-size: 0.8rem; text-align: left; display: flex; justify-content: space-between; cursor: pointer;">
-                                <span>Right:</span> <span class="kbd" id="kbd-RIGHT">ArrowRight</span>
-                            </button>
-                            <button class="btn-control key-config-btn" data-button="A" style="padding: 8px; font-size: 0.8rem; text-align: left; display: flex; justify-content: space-between; cursor: pointer;">
-                                <span>A:</span> <span class="kbd" id="kbd-A">KeyZ</span>
-                            </button>
-                            <button class="btn-control key-config-btn" data-button="B" style="padding: 8px; font-size: 0.8rem; text-align: left; display: flex; justify-content: space-between; cursor: pointer;">
-                                <span>B:</span> <span class="kbd" id="kbd-B">KeyX</span>
-                            </button>
-                            <button class="btn-control key-config-btn" data-button="SELECT" style="padding: 8px; font-size: 0.8rem; text-align: left; display: flex; justify-content: space-between; cursor: pointer;">
-                                <span>Select:</span> <span class="kbd" id="kbd-SELECT">Space</span>
-                            </button>
-                            <button class="btn-control key-config-btn" data-button="START" style="padding: 8px; font-size: 0.8rem; text-align: left; display: flex; justify-content: space-between; cursor: pointer;">
-                                <span>Start:</span> <span class="kbd" id="kbd-START">Enter</span>
-                            </button>
-                        </div>
-                        <button id="btn-reset-controls" class="btn-control" style="background-color: rgba(247, 118, 142, 0.15); border-color: #f7768e; color: #f7768e; width: 100%; font-size: 0.8rem; padding: 6px; margin-top: 4px; border-radius: 4px; cursor: pointer;">
-                            Reset to Defaults
-                        </button>
-                    </div>
-                </details>
-            </div>
-
             <!-- Keyboard Mapping Info -->
             <div class="info-panel">
-                <h3>Keyboard Joypad Mappings</h3>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                    <h3 style="margin: 0; font-size: 1.0rem; letter-spacing: 0.5px;">Keyboard Mappings</h3>
+                    <button id="btn-open-key-config" class="btn-control" style="padding: 4px 8px; font-size: 0.75rem; cursor: pointer; margin: 0; border-radius: 4px;">⚙️ Customize</button>
+                </div>
                 <ul>
                     <li><span class="btn-label">Up</span><span class="btn-keys"><span class="kbd">ArrowUp</span></span></li>
                     <li><span class="btn-label">Down</span><span class="btn-keys"><span class="kbd">ArrowDown</span></span></li>
@@ -453,6 +415,50 @@
                     <li><span class="btn-label">Select</span><span class="btn-keys"><span class="kbd">Space</span></span></li>
                     <li><span class="btn-label">Start</span><span class="btn-keys"><span class="kbd">Enter</span></span></li>
                 </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Keyboard Configurator Overlay -->
+    <div id="key-config-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(15, 17, 26, 0.85); z-index: 2000; justify-content: center; align-items: center; backdrop-filter: blur(2px);">
+        <div class="controls-container" style="width: 360px; padding: 20px; border: 2px solid var(--accent-color); background: var(--bg-color); border-radius: 8px; box-shadow: 0 12px 32px rgba(0,0,0,0.6); box-sizing: border-box; display: flex; flex-direction: column; gap: 8px;">
+            <h2 style="font-size: 1.1rem; margin: 0; color: var(--accent-color); text-align: left;">Configure Controls</h2>
+            <p style="font-size: 0.75rem; color: var(--text-muted); margin: 0 0 8px 0; text-align: left;">Click any button below and press a key on your keyboard to map it.</p>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%;">
+                <button class="btn-control key-config-btn" data-button="UP" style="padding: 8px; font-size: 0.8rem; text-align: left; display: flex; justify-content: space-between; cursor: pointer; width: 100%; box-sizing: border-box;">
+                    <span>Up:</span> <span class="kbd" id="kbd-UP">ArrowUp</span>
+                </button>
+                <button class="btn-control key-config-btn" data-button="DOWN" style="padding: 8px; font-size: 0.8rem; text-align: left; display: flex; justify-content: space-between; cursor: pointer; width: 100%; box-sizing: border-box;">
+                    <span>Down:</span> <span class="kbd" id="kbd-DOWN">ArrowDown</span>
+                </button>
+                <button class="btn-control key-config-btn" data-button="LEFT" style="padding: 8px; font-size: 0.8rem; text-align: left; display: flex; justify-content: space-between; cursor: pointer; width: 100%; box-sizing: border-box;">
+                    <span>Left:</span> <span class="kbd" id="kbd-LEFT">ArrowLeft</span>
+                </button>
+                <button class="btn-control key-config-btn" data-button="RIGHT" style="padding: 8px; font-size: 0.8rem; text-align: left; display: flex; justify-content: space-between; cursor: pointer; width: 100%; box-sizing: border-box;">
+                    <span>Right:</span> <span class="kbd" id="kbd-RIGHT">ArrowRight</span>
+                </button>
+                <button class="btn-control key-config-btn" data-button="A" style="padding: 8px; font-size: 0.8rem; text-align: left; display: flex; justify-content: space-between; cursor: pointer; width: 100%; box-sizing: border-box;">
+                    <span>A:</span> <span class="kbd" id="kbd-A">KeyZ</span>
+                </button>
+                <button class="btn-control key-config-btn" data-button="B" style="padding: 8px; font-size: 0.8rem; text-align: left; display: flex; justify-content: space-between; cursor: pointer; width: 100%; box-sizing: border-box;">
+                    <span>B:</span> <span class="kbd" id="kbd-B">KeyX</span>
+                </button>
+                <button class="btn-control key-config-btn" data-button="SELECT" style="padding: 8px; font-size: 0.8rem; text-align: left; display: flex; justify-content: space-between; cursor: pointer; width: 100%; box-sizing: border-box;">
+                    <span>Select:</span> <span class="kbd" id="kbd-SELECT">Space</span>
+                </button>
+                <button class="btn-control key-config-btn" data-button="START" style="padding: 8px; font-size: 0.8rem; text-align: left; display: flex; justify-content: space-between; cursor: pointer; width: 100%; box-sizing: border-box;">
+                    <span>Start:</span> <span class="kbd" id="kbd-START">Enter</span>
+                </button>
+            </div>
+            
+            <div style="display: flex; gap: 8px; width: 100%; margin-top: 8px;">
+                <button id="btn-reset-controls" class="btn-control" style="flex: 1; background-color: rgba(247, 118, 142, 0.15); border-color: #f7768e; color: #f7768e; font-size: 0.8rem; padding: 6px; cursor: pointer;">
+                    Reset Defaults
+                </button>
+                <button id="btn-close-keys" class="btn-control" style="flex: 1; font-size: 0.8rem; padding: 6px; cursor: pointer;">
+                    Close
+                </button>
             </div>
         </div>
     </div>

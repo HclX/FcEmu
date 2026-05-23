@@ -326,6 +326,40 @@ function formatKeyName(code) {
 }
 
 // Setup UI Configurator Event Listeners
+const keyConfigModal = document.getElementById("key-config-modal");
+const openConfigBtn = document.getElementById("btn-open-key-config");
+const closeConfigBtn = document.getElementById("btn-close-keys");
+
+if (openConfigBtn && keyConfigModal) {
+    openConfigBtn.addEventListener("click", () => {
+        keyConfigModal.style.display = "flex";
+    });
+}
+
+function closeModal() {
+    if (keyConfigModal) {
+        if (activeConfigButton) {
+            activeConfigButton.classList.remove("listening");
+            const oldBtn = activeConfigButton.dataset.button;
+            activeConfigButton.querySelector(".kbd").textContent = formatKeyName(keyBindings[oldBtn]);
+            activeConfigButton = null;
+        }
+        keyConfigModal.style.display = "none";
+    }
+}
+
+if (closeConfigBtn) {
+    closeConfigBtn.addEventListener("click", closeModal);
+}
+
+if (keyConfigModal) {
+    keyConfigModal.addEventListener("click", (e) => {
+        if (e.target === keyConfigModal) {
+            closeModal();
+        }
+    });
+}
+
 const configButtons = document.querySelectorAll(".key-config-btn");
 configButtons.forEach(btn => {
     btn.addEventListener("click", (e) => {
