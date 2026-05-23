@@ -1153,6 +1153,26 @@ if (btnFilterCrisp && btnFilterSmooth) {
     });
 }
 
+// Fullscreen Toggle
+const btnFullscreen = document.getElementById("btn-fullscreen");
+const canvasWrapper = document.getElementById("canvas-wrapper");
+
+if (btnFullscreen && canvasWrapper) {
+    btnFullscreen.addEventListener("click", () => {
+        toggleFullscreen();
+    });
+}
+
+function toggleFullscreen() {
+    if (!document.fullscreenElement) {
+        canvasWrapper.requestFullscreen().catch(err => {
+            console.error(`Error attempting to enable full-screen mode: ${err.message} (${err.name})`);
+        });
+    } else {
+        document.exitFullscreen();
+    }
+}
+
 // ==========================================
 // PeerJS Netplay (Milestone 2)
 // ==========================================
