@@ -1,0 +1,18 @@
+[package]
+name = "fce_emu"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "fce_core"
+path = "src/lib.rs"
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "headless"
+path = "src/bin/headless.rs"
+
+[dependencies]
+image = { version = "0.24", default-features = false, features = ["jpeg", "png"] }
+md5 = "0.7"
+wasm-bindgen = "0.2"

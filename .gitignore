@@ -1,0 +1,24 @@
+# Rust build artifacts
+/target
+
+# Log files
+nestest.log
+*.log
+
+# Temporary debug images
+*.ppm
+*.png
+*.jpg
+*.jpeg
+
+# ROM files (copyright protection)
+*.nes
+!/static/public/roms/super_mario_bro.nes
+
+# Ignore agent-generated markdown files in root except DESIGN.md and RELEASE.md
+/*.md
+!/DESIGN.md
+!/RELEASE.md
+
+# Ignore all agent folders
+.agents/
