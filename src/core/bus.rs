@@ -36,6 +36,8 @@ pub struct SimpleBus {
     pub controller_state: u8,
     pub controller_latch: u8,
     pub controller_shift: u8,
+    pub controller2_state: u8,
+    pub controller2_shift: u8,
     pub ppu_frame_complete: bool,
     pub ppu_ticked_cycles: u32,
 }
@@ -119,6 +121,8 @@ impl SimpleBus {
             controller_state: 0,
             controller_latch: 0,
             controller_shift: 0,
+            controller2_state: 0,
+            controller2_shift: 0,
             ppu_frame_complete: false,
             ppu_ticked_cycles: 0,
         }
@@ -153,7 +157,7 @@ impl CpuBus for SimpleBus {
                 };
                 self.ppu.read_reg(addr, &mut ppu_bus)
             }
-            0x4000..=0x4013 | 0x4015 | 0x4017 => self.apu.read_reg(addr),
+            0x4000..=0x4013 | 0x4015 => self.apu.read_reg(addr),
             0x4016 => {
                 if self.controller_latch == 1 {
                     self.controller_shift = self.controller_state;
@@ -161,6 +165,16 @@ impl CpuBus for SimpleBus {
                 let bit = (self.controller_shift & 0x01) | 0x40;
                 if self.controller_latch == 0 {
                     self.controller_shift = (self.controller_shift >> 1) | 0x80;
+                }
+                bit
+            }
+            0x4017 => {
+                if self.controller_latch == 1 {
+                    self.controller2_shift = self.controller2_state;
+                }
+                let bit = (self.controller2_shift & 0x01) | 0x40;
+                if self.controller_latch == 0 {
+                    self.controller2_shift = (self.controller2_shift >> 1) | 0x80;
                 }
                 bit
             }
@@ -197,6 +211,7 @@ impl CpuBus for SimpleBus {
                 self.controller_latch = val & 0x01;
                 if self.controller_latch == 1 {
                     self.controller_shift = self.controller_state;
+                    self.controller2_shift = self.controller2_state;
                 }
             }
             0x4020..=0xFFFF => {

@@ -154,12 +154,12 @@ pub struct Apu {
     pub triangle: TriangleChannel,
     pub noise: NoiseChannel,
     pub sample_buffer: Vec<f32>,
-    cycle_accumulator: f64,
-    prev_input: f32,
-    prev_output: f32,
-    prev_lpf_output: f32,
-    frame_counter_cycle: u32,
-    frame_counter_step: u8,
+    pub cycle_accumulator: f64,
+    pub prev_input: f32,
+    pub prev_output: f32,
+    pub prev_lpf_output: f32,
+    pub frame_counter_cycle: u32,
+    pub frame_counter_step: u8,
 }
 
 impl Default for Apu {

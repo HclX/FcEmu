@@ -27,6 +27,14 @@ pub trait Mapper: Send {
     fn step_scanline(&mut self) -> bool {
         false
     }
+
+    /// Serialize internal mapper state.
+    fn save_state(&self) -> Vec<u8> {
+        Vec::new()
+    }
+
+    /// Deserialize internal mapper state.
+    fn load_state(&mut self, _state: &[u8]) {}
 }
 
 /// Mapper0 (NROM) mapping logic.
@@ -232,6 +240,28 @@ impl Mapper for Mapper1 {
             2 => Some(MirroringMode::Vertical),
             3 => Some(MirroringMode::Horizontal),
             _ => unreachable!(),
+        }
+    }
+
+    fn save_state(&self) -> Vec<u8> {
+        let mut state = Vec::with_capacity(6);
+        state.push(self.shift_reg);
+        state.push(self.write_count);
+        state.push(self.control);
+        state.push(self.chr_bank_0);
+        state.push(self.chr_bank_1);
+        state.push(self.prg_bank);
+        state
+    }
+
+    fn load_state(&mut self, state: &[u8]) {
+        if state.len() >= 6 {
+            self.shift_reg = state[0];
+            self.write_count = state[1];
+            self.control = state[2];
+            self.chr_bank_0 = state[3];
+            self.chr_bank_1 = state[4];
+            self.prg_bank = state[5];
         }
     }
 }

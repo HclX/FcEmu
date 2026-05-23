@@ -138,4 +138,63 @@ impl Cartridge {
             }
         }
     }
+
+    pub fn save_state(&self) -> Vec<u8> {
+        let mut state = Vec::with_capacity(8192 * 2 + 32);
+        
+        // Write PRG RAM (always 8KB in our core)
+        state.extend_from_slice(&self.prg_ram);
+        
+        // Write CHR RAM length then data
+        state.extend_from_slice(&(self.chr_ram.len() as u32).to_le_bytes());
+        state.extend_from_slice(&self.chr_ram);
+        
+        // Write Mapper state length then data
+        let mapper_state = self.mapper.save_state();
+        state.extend_from_slice(&(mapper_state.len() as u32).to_le_bytes());
+        state.extend_from_slice(&mapper_state);
+        
+        state
+    }
+
+    pub fn load_state(&mut self, state: &[u8]) -> Result<usize, String> {
+        if state.len() < 8192 + 8 {
+            return Err("State too small for Cartridge".to_string());
+        }
+        let mut idx = 0;
+        
+        // Restore PRG RAM
+        self.prg_ram.copy_from_slice(&state[idx..idx + 8192]);
+        idx += 8192;
+        
+        // Restore CHR RAM
+        let chr_ram_len = u32::from_le_bytes(state[idx..idx+4].try_into().unwrap()) as usize;
+        idx += 4;
+        if chr_ram_len > 0 {
+            if state.len() < idx + chr_ram_len {
+                return Err("State truncated for CHR RAM".to_string());
+            }
+            if self.chr_ram.len() != chr_ram_len {
+                self.chr_ram = vec![0; chr_ram_len];
+            }
+            self.chr_ram.copy_from_slice(&state[idx..idx + chr_ram_len]);
+            idx += chr_ram_len;
+        }
+        
+        // Restore Mapper State
+        if state.len() < idx + 4 {
+            return Err("State truncated for Mapper length".to_string());
+        }
+        let mapper_state_len = u32::from_le_bytes(state[idx..idx+4].try_into().unwrap()) as usize;
+        idx += 4;
+        if mapper_state_len > 0 {
+            if state.len() < idx + mapper_state_len {
+                return Err("State truncated for Mapper state".to_string());
+            }
+            self.mapper.load_state(&state[idx..idx + mapper_state_len]);
+            idx += mapper_state_len;
+        }
+        
+        Ok(idx)
+    }
 }
