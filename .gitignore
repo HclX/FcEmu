@@ -13,7 +13,6 @@ nestest.log
 
 # ROM files (copyright protection)
 *.nes
-!/static/public/roms/*.nes
 
 # Ignore agent-generated markdown files in root except DESIGN.md, RELEASE.md and README.md
 /*.md
