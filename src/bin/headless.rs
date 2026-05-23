@@ -15,6 +15,7 @@ fn main() -> io::Result<()> {
 
     let mut i = 1;
     let mut save_path = None;
+    let mut audio_path = None;
     while i < args.len() {
         match args[i].as_str() {
             "--rom" => {
@@ -73,6 +74,17 @@ fn main() -> io::Result<()> {
                     return Err(io::Error::new(
                         io::ErrorKind::InvalidInput,
                         "Missing value for --save",
+                    ));
+                }
+            }
+            "--audio" => {
+                if i + 1 < args.len() {
+                    audio_path = Some(&args[i + 1]);
+                    i += 2;
+                } else {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "Missing value for --audio",
                     ));
                 }
             }
@@ -192,7 +204,8 @@ fn main() -> io::Result<()> {
 
             bus.ppu_frame_complete = false;
             while !bus.ppu_frame_complete {
-                cpu.step(&mut bus);
+                let cycles = cpu.step(&mut bus);
+                bus.apu.tick(cycles);
             }
             frame_count += 1;
         }
@@ -214,9 +227,22 @@ fn main() -> io::Result<()> {
                 &buffer,
                 256,
                 240,
-                image::ColorType::Rgb8,
+                image::ColorType::Rgba8,
             ).map_err(io::Error::other)?;
             println!("Saved frame to {}", save_p);
+        }
+
+        if let Some(audio_p) = audio_path {
+            let mut file = File::create(audio_p)?;
+            let samples = &bus.apu.sample_buffer;
+            let bytes: &[u8] = unsafe {
+                std::slice::from_raw_parts(
+                    samples.as_ptr() as *const u8,
+                    samples.len() * std::mem::size_of::<f32>(),
+                )
+            };
+            file.write_all(bytes)?;
+            println!("Saved {} raw f32 audio samples to {}", samples.len(), audio_p);
         }
     }
 

@@ -251,9 +251,10 @@ impl Ppu {
         let g = NES_PALETTE[pal_idx * 3 + 1];
         let b = NES_PALETTE[pal_idx * 3 + 2];
 
-        let fb_idx = (y * 256 + x) * 3;
+        let fb_idx = (y * 256 + x) * 4;
         self.frame_buffer[fb_idx] = r;
         self.frame_buffer[fb_idx + 1] = g;
         self.frame_buffer[fb_idx + 2] = b;
+        self.frame_buffer[fb_idx + 3] = 255;
     }
 }

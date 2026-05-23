@@ -27,8 +27,8 @@ pub struct Ppu {
     pub scanline: i16,
     pub cycle: i16,
 
-    // Output Frame Buffer (256 x 240 pixels, RGB format)
-    pub frame_buffer: Box<[u8; 256 * 240 * 3]>,
+    // Output Frame Buffer (256 x 240 pixels, RGBA format)
+    pub frame_buffer: Box<[u8; 256 * 240 * 4]>,
 
     // NMI signaling flags
     pub nmi_asserted: bool,
@@ -56,7 +56,7 @@ impl Ppu {
             palette_ram: [0; 32],
             scanline: 261, // Start at pre-render scanline
             cycle: 0,
-            frame_buffer: Box::new([0; 256 * 240 * 3]),
+            frame_buffer: Box::new([0; 256 * 240 * 4]),
             nmi_asserted: false,
         }
     }

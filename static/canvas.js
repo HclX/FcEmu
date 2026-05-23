@@ -20,7 +20,6 @@ let currentRatio = "native";
 // DOM Elements
 const canvas = document.getElementById("nes-canvas");
 const ctx = canvas.getContext("2d");
-const imgData = ctx.createImageData(256, 240);
 
 const bootOverlay = document.getElementById("boot-overlay");
 const bootBtn = document.getElementById("boot-btn");
@@ -198,23 +197,11 @@ function loop() {
     // Step 2: Run engine to produce one PPU frame and synthesize audio
     emulator.step_frame();
 
-    // Step 3: Visual Output (zero-copy 32-bit cast RGB to RGBA expansion loop)
+    // Step 3: Visual Output (100% Pure Zero-Copy Direct Memory Sharing)
     const framePtr = emulator.frame_buffer_ptr();
-    const rgbBuffer = new Uint8Array(wasm_exports.memory.buffer, framePtr, 256 * 240 * 3);
-    const rgba32 = new Uint32Array(imgData.data.buffer);
-    
-    let srcIdx = 0;
-    for (let i = 0; i < 256 * 240; i++) {
-        const r = rgbBuffer[srcIdx];
-        const g = rgbBuffer[srcIdx + 1];
-        const b = rgbBuffer[srcIdx + 2];
-        
-        // Little-endian system pixel packing: 0xFFBBGGRR
-        // R is at offset 0 (bits 0-7), G is at offset 1 (bits 8-15), B is at offset 2 (bits 16-23), A is 255 (bits 24-31)
-        rgba32[i] = 0xFF000000 | (b << 16) | (g << 8) | r;
-        srcIdx += 3;
-    }
-    ctx.putImageData(imgData, 0, 0);
+    const rgbaBuffer = new Uint8ClampedArray(wasm_exports.memory.buffer, framePtr, 256 * 240 * 4);
+    const frameImgData = new ImageData(rgbaBuffer, 256, 240);
+    ctx.putImageData(frameImgData, 0, 0);
 
     // Step 4: Web Audio Scheduling (Dynamic short play nodes with latency control)
     if (audioCtx && audioCtx.state !== "suspended") {
