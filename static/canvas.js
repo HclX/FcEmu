@@ -26,8 +26,6 @@ const bootOverlay = document.getElementById("boot-overlay");
 const bootBtn = document.getElementById("boot-btn");
 const dropZone = document.getElementById("drop-zone");
 const fileInput = document.getElementById("file-input");
-const ratioButtons = document.querySelectorAll("#ratio-group .btn-control");
-const sizeButtons = document.querySelectorAll("#size-group .btn-control");
 
 // IndexedDB Helpers
 const DB_NAME = "FcEmuDB";
@@ -99,28 +97,25 @@ function validateNESHeader(arrayBuffer) {
 
 // Sizing Engine Layout Function
 function applyLayoutSize() {
-    const targetRatio = currentRatio === "crt" ? (4 / 3) : (16 / 15);
-    if (currentScale === "fit") {
-        const reservedHeight = 260;
-        const reservedWidth = 48;
-        const maxW = window.innerWidth - reservedWidth;
-        const maxH = window.innerHeight - reservedHeight;
-        
-        let finalWidth = maxW;
-        let finalHeight = maxW / targetRatio;
-        if (finalHeight > maxH) {
-            finalHeight = maxH;
-            finalWidth = maxH * targetRatio;
-        }
-        canvas.style.setProperty("--canvas-width", `${Math.floor(finalWidth)}px`);
-        canvas.style.setProperty("--canvas-height", `${Math.floor(finalHeight)}px`);
-    } else {
-        const scaleFactor = parseInt(currentScale);
-        const baseWidth = currentRatio === "crt" ? 320 : 256;
-        const baseHeight = 240;
-        canvas.style.setProperty("--canvas-width", `${baseWidth * scaleFactor}px`);
-        canvas.style.setProperty("--canvas-height", `${baseHeight * scaleFactor}px`);
+    const targetRatio = 16 / 15; // Always keep native aspect ratio
+    
+    const reservedHeight = 48; // Page vertical padding/margins
+    const reservedWidth = 392; // Sidebar (320px) + Gap (24px) + Margins (48px)
+    
+    // Calculate maximum available space, enforcing strict 2x minimums (512x480)
+    const maxW = Math.max(512, window.innerWidth - reservedWidth);
+    const maxH = Math.max(480, window.innerHeight - reservedHeight);
+    
+    let finalWidth = maxW;
+    let finalHeight = maxW / targetRatio;
+    
+    if (finalHeight > maxH) {
+        finalHeight = maxH;
+        finalWidth = maxH * targetRatio;
     }
+    
+    canvas.style.setProperty("--canvas-width", `${Math.floor(finalWidth)}px`);
+    canvas.style.setProperty("--canvas-height", `${Math.floor(finalHeight)}px`);
 }
 
 // NES Joypad Bitmasks
@@ -422,29 +417,8 @@ fileInput.addEventListener("change", (e) => {
     }
 });
 
-// Sizing Buttons Click Listeners
-ratioButtons.forEach(btn => {
-    btn.addEventListener("click", () => {
-        ratioButtons.forEach(b => b.classList.remove("active"));
-        btn.classList.add("active");
-        currentRatio = btn.dataset.ratio;
-        applyLayoutSize();
-    });
-});
-
-sizeButtons.forEach(btn => {
-    btn.addEventListener("click", () => {
-        sizeButtons.forEach(b => b.classList.remove("active"));
-        btn.classList.add("active");
-        currentScale = btn.dataset.size;
-        applyLayoutSize();
-    });
-});
-
 window.addEventListener("resize", () => {
-    if (currentScale === "fit") {
-        requestAnimationFrame(applyLayoutSize);
-    }
+    requestAnimationFrame(applyLayoutSize);
 });
 
 // Boot button overlay click event
