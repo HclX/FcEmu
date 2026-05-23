@@ -14,7 +14,7 @@ let lastSavedSram = null;
 let autoSaveIntervalId = null;
 
 // Display size variables
-let currentScale = "2";
+let currentScale = "fit";
 let currentRatio = "native";
 
 // DOM Elements
@@ -485,4 +485,23 @@ if (btnLoadDefault) {
 
 // Apply base sizing and initialize WASM Emulator core
 applyLayoutSize();
-initWasm();
+initWasm().then(async () => {
+    console.log("[FcEmu] Auto-loading default ROM: Super Mario Bros...");
+    try {
+        let response = null;
+        try {
+            response = await fetch("./roms/super_mario_bro.nes");
+            if (!response.ok) throw new Error();
+        } catch (e) {
+            response = await fetch("./public/roms/super_mario_bro.nes");
+            if (!response.ok) {
+                throw new Error(`Server returned status ${response.status}`);
+            }
+        }
+        
+        const arrayBuffer = await response.arrayBuffer();
+        await handleROMBuffer(arrayBuffer, "super_mario_bro.nes");
+    } catch (err) {
+        console.error("[FcEmu] Auto-loading default ROM failed:", err);
+    }
+});

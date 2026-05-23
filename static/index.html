@@ -56,9 +56,18 @@
             padding: 24px;
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
             display: flex;
-            flex-direction: column;
-            align-items: center;
+            flex-direction: row;
+            gap: 24px;
+            align-items: flex-start;
             position: relative;
+        }
+
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            width: 320px;
+            box-sizing: border-box;
         }
 
         /* Canvas Container & Dynamic Crisp Resizing */
@@ -90,7 +99,9 @@
             left: 0;
             width: 100%;
             height: 100%;
-            background-color: rgba(22, 22, 30, 0.96);
+            background-color: rgba(22, 22, 30, 0.65);
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -137,21 +148,20 @@
         /* Control Bar Styling */
         .display-controls {
             display: flex;
-            justify-content: space-between;
-            align-items: center;
+            flex-direction: column;
+            align-items: stretch;
             width: 100%;
-            max-width: 560px;
-            margin-top: 1rem;
             background-color: rgba(22, 22, 30, 0.4);
             border: 1px solid var(--border-color);
             border-radius: 8px;
-            padding: 8px 14px;
-            gap: 16px;
+            padding: 12px;
+            gap: 12px;
             box-sizing: border-box;
         }
 
         .control-group {
             display: flex;
+            justify-content: space-between;
             align-items: center;
             gap: 8px;
         }
@@ -279,66 +289,64 @@
 </head>
 <body>
 
-    <header>
-        <h1>FcEmu</h1>
-        <p class="subtitle">WASM NES Emulator — Pure Client-Side</p>
-    </header>
-
     <div class="main-container">
         <!-- Canvas Container -->
         <div class="canvas-container" id="canvas-wrapper">
             <!-- Boot / Interactive Audio Initializer Overlay -->
             <div id="boot-overlay" class="overlay">
-                <button id="boot-btn" class="btn-boot">Start Emulator Core</button>
-                <p>Click to initialize Web Audio Context and activate the emulator canvas.</p>
+                <button id="boot-btn" class="btn-boot">🔇 Unmute Audio & Play</button>
+                <p>The game is loaded and running! Click to unmute sound and start playing.</p>
             </div>
 
             <!-- Emulation Canvas -->
             <canvas id="nes-canvas" width="256" height="240"></canvas>
         </div>
 
-        <!-- Display Sizing & Aspect Ratio Bar -->
-        <div class="display-controls">
-            <div class="control-group">
-                <span class="control-label">Aspect Ratio</span>
-                <div class="btn-group" id="ratio-group">
-                    <button class="btn-control active" data-ratio="native">Native (16:15)</button>
-                    <button class="btn-control" data-ratio="crt">CRT (4:3)</button>
+        <!-- Right Sidebar for Controls -->
+        <div class="sidebar">
+            <!-- Display Sizing & Aspect Ratio Bar -->
+            <div class="display-controls">
+                <div class="control-group">
+                    <span class="control-label">Aspect Ratio</span>
+                    <div class="btn-group" id="ratio-group">
+                        <button class="btn-control active" data-ratio="native">Native (16:15)</button>
+                        <button class="btn-control" data-ratio="crt">CRT (4:3)</button>
+                    </div>
+                </div>
+                <div class="control-group">
+                    <span class="control-label">Size</span>
+                    <div class="btn-group" id="size-group">
+                        <button class="btn-control" data-size="1">1x</button>
+                        <button class="btn-control" data-size="2">2x</button>
+                        <button class="btn-control" data-size="3">3x</button>
+                        <button class="btn-control active" data-size="fit">Fit Window</button>
+                    </div>
                 </div>
             </div>
-            <div class="control-group">
-                <span class="control-label">Size</span>
-                <div class="btn-group" id="size-group">
-                    <button class="btn-control" data-size="1">1x</button>
-                    <button class="btn-control active" data-size="2">2x</button>
-                    <button class="btn-control" data-size="3">3x</button>
-                    <button class="btn-control" data-size="fit">Fit Window</button>
+
+            <!-- Controls -->
+            <div class="controls-container">
+                <div id="drop-zone" class="dropzone">
+                    <p>Drag & Drop NES ROM here</p>
+                    <span>or click to browse files</span>
                 </div>
+                <input type="file" id="file-input" accept=".nes">
+                <button id="btn-load-default" class="btn-boot" style="width: 100%; margin-top: 8px; background-color: #24283b; color: var(--text-color); border: 1px solid var(--border-color); box-shadow: none;">
+                    ⚡ Load Default: Super Mario Bros.
+                </button>
             </div>
-        </div>
 
-        <!-- Controls -->
-        <div class="controls-container">
-            <div id="drop-zone" class="dropzone">
-                <p>Drag & Drop NES ROM here</p>
-                <span>or click to browse files</span>
+            <!-- Keyboard Mapping Info -->
+            <div class="info-panel">
+                <h3>Keyboard Joypad Mappings</h3>
+                <ul>
+                    <li><span class="kbd">D-Pad</span> : Arrow Keys or <span class="kbd">W</span> <span class="kbd">A</span> <span class="kbd">S</span> <span class="kbd">D</span></li>
+                    <li><span class="kbd">Button A</span> : <span class="kbd">Z</span> or <span class="kbd">J</span></li>
+                    <li><span class="kbd">Button B</span> : <span class="kbd">X</span> or <span class="kbd">K</span></li>
+                    <li><span class="kbd">Select</span> : <span class="kbd">Right Shift</span> or <span class="kbd">Space</span></li>
+                    <li><span class="kbd">Start</span> : <span class="kbd">Enter</span></li>
+                </ul>
             </div>
-            <input type="file" id="file-input" accept=".nes">
-            <button id="btn-load-default" class="btn-boot" style="width: 100%; margin-top: 8px; background-color: #24283b; color: var(--text-color); border: 1px solid var(--border-color); box-shadow: none;">
-                ⚡ Load Default: Super Mario Bros.
-            </button>
-        </div>
-
-        <!-- Keyboard Mapping Info -->
-        <div class="info-panel">
-            <h3>Keyboard Joypad Mappings</h3>
-            <ul>
-                <li><span class="kbd">D-Pad</span> : Arrow Keys or <span class="kbd">W</span> <span class="kbd">A</span> <span class="kbd">S</span> <span class="kbd">D</span></li>
-                <li><span class="kbd">Button A</span> : <span class="kbd">Z</span> or <span class="kbd">J</span></li>
-                <li><span class="kbd">Button B</span> : <span class="kbd">X</span> or <span class="kbd">K</span></li>
-                <li><span class="kbd">Select</span> : <span class="kbd">Right Shift</span> or <span class="kbd">A</span></li>
-                <li><span class="kbd">Start</span> : <span class="kbd">Enter</span></li>
-            </ul>
         </div>
     </div>
 
