@@ -288,7 +288,7 @@ impl Mapper227 {
 impl Mapper for Mapper227 {
     fn map_cpu_read(&self, addr: u16) -> Option<usize> {
         if addr >= 0x8000 {
-            let outer_bank = ((self.latch >> 5) & 0x07) as usize;
+            let outer_bank = (((self.latch >> 5) & 0x03) | (((self.latch >> 8) & 0x01) << 2)) as usize;
             let inner_bank = ((self.latch >> 2) & 0x07) as usize;
             let s = self.latch & 0x01;
             let o = (self.latch >> 7) & 0x01;
@@ -472,10 +472,10 @@ mod tests {
         // Let's do a simple direct test: write 0x8000 | 0x00C2 (O=1, outer=6, inner=0, mirror=1, s=0)
         mapper.map_cpu_write(0x80C2, 0);
         assert_eq!(mapper.mirroring(), Some(MirroringMode::Horizontal));
-        // NROM-128 mode: CPU $8000 maps to inner bank PPp = 0 inside outer block 6 -> offset 6 * 128KB = 768KB
-        assert_eq!(mapper.map_cpu_read(0x8000), Some(6 * 128 * 1024));
-        // CPU $C000 maps to mirrored PPp = 0 inside outer 6 -> offset 768KB
-        assert_eq!(mapper.map_cpu_read(0xC000), Some(6 * 128 * 1024));
+        // NROM-128 mode: CPU $8000 maps to inner bank PPp = 0 inside outer block 2 -> offset 2 * 128KB = 256KB
+        assert_eq!(mapper.map_cpu_read(0x8000), Some(2 * 128 * 1024));
+        // CPU $C000 maps to mirrored PPp = 0 inside outer 2 -> offset 256KB
+        assert_eq!(mapper.map_cpu_read(0xC000), Some(2 * 128 * 1024));
         // CHR-RAM should be write-protected (O = 1)
         assert_eq!(mapper.map_ppu_write(0x1000, 0xAA), None);
 
@@ -483,10 +483,10 @@ mod tests {
         // Latch address: O=1 (0x80), S=1 (0x01), Inner=4 (0x10), Outer=1 (0x20) -> latch = 0xB1
         mapper.map_cpu_write(0x80B1, 0);
         // CPU A14 determines A14 line:
-        // CPU $8000 (A14=0) -> bank 4 (inner 4 & 6 = 4) -> offset 5 * 128KB + 4 * 16KB = 720896 bytes
-        assert_eq!(mapper.map_cpu_read(0x8000), Some(5 * 128 * 1024 + 4 * 16 * 1024));
-        // CPU $C000 (A14=1) -> bank 5 (inner 4 | 1 = 5) -> offset 5 * 128KB + 5 * 16KB = 737280 bytes
-        assert_eq!(mapper.map_cpu_read(0xC000), Some(5 * 128 * 1024 + 5 * 16 * 1024));
+        // CPU $8000 (A14=0) -> bank 4 (inner 4 & 6 = 4) -> offset 1 * 128KB + 4 * 16KB = 192KB
+        assert_eq!(mapper.map_cpu_read(0x8000), Some(1 * 128 * 1024 + 4 * 16 * 1024));
+        // CPU $C000 (A14=1) -> bank 5 (inner 4 | 1 = 5) -> offset 1 * 128KB + 5 * 16KB = 208KB
+        assert_eq!(mapper.map_cpu_read(0xC000), Some(1 * 128 * 1024 + 5 * 16 * 1024));
 
         // Test Case 4: UNROM Mode (O = 0, L = 1, Inner Bank = 3, Outer Block = 0)
         // Latch address: O=0, L=1 (0x200 -> Bit 9!), Inner=3 (0x0C) -> latch = 0x020C
