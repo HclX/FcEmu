@@ -20,6 +20,21 @@ window.onunhandledrejection = function(event) {
 // Bug Report Input History Recording variables
 let inputHistory = [];
 
+// Gameplay Input Recording & Replay global state
+let isRecording = false;
+let recordInputs = [];
+let recordingInitialState = null;
+let lastRecordedP1Mask = 0;
+let lastRecordedP2Mask = 0;
+
+let isReplaying = false;
+let replayInputs = new Map(); // Map of frameIndex -> [p1Mask, p2Mask]
+let maxReplayFrame = 0;
+let activeReplayP1Mask = 0;
+let activeReplayP2Mask = 0;
+let playbackSpeed = 1; // 1 (1x), 2 (2x), 4 (4x), 8 (8x)
+let pendingReplayData = null;
+
 // Global emulator and Audio state
 let emulator = null;
 let wasm_exports = null;
@@ -678,6 +693,12 @@ function pollGamepads() {
 function loop() {
     if (!isRunning) return;
 
+    // Safely apply replay data synchronously outside of active WASM calls
+    if (pendingReplayData) {
+        applyPendingReplay(pendingReplayData);
+        pendingReplayData = null;
+    }
+
     // Poll virtual or real gamepads
     pollGamepads();
 
@@ -749,19 +770,52 @@ function loop() {
             spinner.style.display = "none";
         }
 
-        const currentMask = controllerState | window.controllerState;
-        emulator.write_controller(currentMask);
-        emulator.write_controller2(window.controller2State);
-        
-        const lastRecordedInput = inputHistory[inputHistory.length - 1];
-        if (!lastRecordedInput || lastRecordedInput.mask !== currentMask) {
-            inputHistory.push({ frame: localFrameIndex, mask: currentMask });
+        const steps = isReplaying ? playbackSpeed : 1;
+        for (let step = 0; step < steps; step++) {
+            if (isReplaying) {
+                // REPLAY MODE: Bypass keyboard polling, feed from replay inputs
+                if (replayInputs.has(localFrameIndex)) {
+                    const [p1, p2] = replayInputs.get(localFrameIndex);
+                    activeReplayP1Mask = p1;
+                    activeReplayP2Mask = p2;
+                }
+                emulator.write_controller(activeReplayP1Mask);
+                emulator.write_controller2(activeReplayP2Mask);
+
+                // End of replay auto-stop
+                if (localFrameIndex >= maxReplayFrame) {
+                    isReplaying = false;
+                    updateReplayUI(false);
+                    console.log("[FcEmu] Replay finished. Switched back to normal execution.");
+                    break;
+                }
+            } else {
+                // NORMAL MODE: Poll gamepads & keyboards
+                const currentMask = controllerState | window.controllerState;
+                emulator.write_controller(currentMask);
+                emulator.write_controller2(window.controller2State);
+
+                // Original inputHistory log (clipboard/bug reports)
+                const lastRecordedInput = inputHistory[inputHistory.length - 1];
+                if (!lastRecordedInput || lastRecordedInput.mask !== currentMask) {
+                    inputHistory.push({ frame: localFrameIndex, mask: currentMask });
+                }
+
+                // RECORD MODE: Intercept and save delta-compressed changes
+                if (isRecording) {
+                    const currentP2Mask = window.controller2State;
+                    if (currentMask !== lastRecordedP1Mask || currentP2Mask !== lastRecordedP2Mask) {
+                        recordInputs.push([localFrameIndex, currentMask, currentP2Mask]);
+                        lastRecordedP1Mask = currentMask;
+                        lastRecordedP2Mask = currentP2Mask;
+                    }
+                }
+            }
+
+            emulator.step_frame();
+            localFrameIndex++;
+            window.localFrameIndex = localFrameIndex;
         }
-
-        emulator.step_frame();
-
-        localFrameIndex++;
-        window.localFrameIndex = localFrameIndex;
     }
 
     // Step 3: Visual Output (100% Pure Zero-Copy Direct Memory Sharing)
@@ -772,39 +826,44 @@ function loop() {
 
     // Step 4: Web Audio Scheduling (Dynamic short play nodes with latency control)
     if (audioCtx && audioCtx.state !== "suspended") {
-        const samplePtr = emulator.sample_buffer_ptr();
-        const sampleLen = emulator.sample_buffer_len();
-        
-        if (sampleLen > 0) {
-            const sampleBuffer = new Float32Array(wasm_exports.memory.buffer, samplePtr, sampleLen);
-            
-            // Create Audio Buffer and copy samples
-            const audioBuffer = audioCtx.createBuffer(1, sampleLen, 44100);
-            audioBuffer.getChannelData(0).set(sampleBuffer);
-
-            // Create short play node
-            const source = audioCtx.createBufferSource();
-            source.buffer = audioBuffer;
-            source.connect(gainNode);
-
-            const duration = sampleLen / 44100;
-            let playTime = nextPlayTime;
-
-            // Snaps-on-underflow logic: add a 50ms safety buffer to absorb frame/thread jitter and prevent crackle
-            if (playTime < audioCtx.currentTime) {
-                playTime = audioCtx.currentTime + 0.05;
-            }
-
-            // 100ms ceiling latency snapping, resetting to 20ms budget
-            if (playTime - audioCtx.currentTime > 0.1) {
-                playTime = audioCtx.currentTime + 0.02;
-            }
-
-            source.start(playTime);
-            nextPlayTime = playTime + duration;
-
-            // Clear/drain the sample buffer in WASM core
+        if (isReplaying && playbackSpeed > 1) {
+            // Mute audio during fast-forward to prevent buffer overrun/high-pitched screeching
             emulator.clear_sample_buffer();
+        } else {
+            const samplePtr = emulator.sample_buffer_ptr();
+            const sampleLen = emulator.sample_buffer_len();
+            
+            if (sampleLen > 0) {
+                const sampleBuffer = new Float32Array(wasm_exports.memory.buffer, samplePtr, sampleLen);
+                
+                // Create Audio Buffer and copy samples
+                const audioBuffer = audioCtx.createBuffer(1, sampleLen, 44100);
+                audioBuffer.getChannelData(0).set(sampleBuffer);
+
+                // Create short play node
+                const source = audioCtx.createBufferSource();
+                source.buffer = audioBuffer;
+                source.connect(gainNode);
+
+                const duration = sampleLen / 44100;
+                let playTime = nextPlayTime;
+
+                // Snaps-on-underflow logic: add a 50ms safety buffer to absorb frame/thread jitter and prevent crackle
+                if (playTime < audioCtx.currentTime) {
+                    playTime = audioCtx.currentTime + 0.05;
+                }
+
+                // 100ms ceiling latency snapping, resetting to 20ms budget
+                if (playTime - audioCtx.currentTime > 0.1) {
+                    playTime = audioCtx.currentTime + 0.02;
+                }
+
+                source.start(playTime);
+                nextPlayTime = playTime + duration;
+
+                // Clear/drain the sample buffer in WASM core
+                emulator.clear_sample_buffer();
+            }
         }
     }
 
@@ -2093,4 +2152,240 @@ if (regionSelect) {
         emulator.reset();
         console.log("[FcEmu] Emulator core reset to synchronize new timing loops.");
     });
+}
+
+// ==========================================
+// Gameplay Input Recording & Playback Replay Features
+// ==========================================
+
+function startRecording() {
+    if (!emulator || !currentRomHash) return;
+    isRecording = true;
+    recordInputs = [];
+    lastRecordedP1Mask = 0;
+    lastRecordedP2Mask = 0;
+    
+    if (localFrameIndex > 0) {
+        const stateBytes = emulator.save_state();
+        let binaryString = "";
+        for (let i = 0; i < stateBytes.length; i++) {
+            binaryString += String.fromCharCode(stateBytes[i]);
+        }
+        recordingInitialState = btoa(binaryString);
+    } else {
+        recordingInitialState = null;
+    }
+    
+    updateRecordButtonUI(true);
+    console.log(`[FcEmu] Recording started at frame ${localFrameIndex}`);
+}
+
+function stopRecording() {
+    if (!isRecording) return;
+    isRecording = false;
+    updateRecordButtonUI(false);
+    
+    // Compile FCR object
+    const fcrData = {
+        metadata: {
+            romName: currentRomName,
+            romHash: currentRomHash,
+            emulatorVersion: "3.0-Hybrid",
+            region: emulator.get_region() === 0 ? "ntsc" : "pal",
+            timestamp: Date.now(),
+            totalFrames: localFrameIndex
+        },
+        initialState: recordingInitialState,
+        inputs: recordInputs
+    };
+    
+    // Trigger file download
+    const blob = new Blob([JSON.stringify(fcrData, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${currentRomName.replace(/\s+/g, "_")}_replay.fcr`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    
+    console.log(`[FcEmu] Recording stopped. Exported ${recordInputs.length} input deltas.`);
+}
+
+async function loadReplayFile(file) {
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+        try {
+            const fcr = JSON.parse(e.target.result);
+            
+            // 1. Validate ROM Hash
+            if (fcr.metadata.romHash !== currentRomHash) {
+                if (!confirm(`Warning: The loaded replay was recorded on a different ROM (${fcr.metadata.romName}). Attempt playback anyway?`)) {
+                    return;
+                }
+            }
+            
+            // Buffer to pendingReplayData to apply safely during next loop iteration
+            pendingReplayData = fcr;
+            console.log(`[FcEmu] Replay file parsed successfully. Buffered for safe synchronous load.`);
+            
+            if (!isRunning) {
+                isRunning = true;
+                requestAnimationFrame(loop);
+            }
+        } catch (err) {
+            alert(`Failed to parse .fcr replay file: ${err.message}`);
+        }
+    };
+    reader.readAsText(file);
+}
+
+function applyPendingReplay(fcr) {
+    try {
+        // If we were recording, stop it first
+        if (isRecording) {
+            isRecording = false;
+            updateRecordButtonUI(false);
+        }
+        
+        // 1. Restore Initial State
+        if (fcr.initialState) {
+            const binaryString = atob(fcr.initialState);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            emulator.load_state(bytes);
+        } else {
+            emulator.reset();
+        }
+        
+        // 2. Align Timing/Region
+        const targetRegion = fcr.metadata.region === "pal" ? 1 : 0;
+        emulator.set_region(targetRegion);
+        const rSelect = document.getElementById("region-select");
+        if (rSelect) rSelect.value = fcr.metadata.region;
+        
+        // 3. Populate Replay Map
+        replayInputs.clear();
+        fcr.inputs.forEach(([frame, p1, p2]) => {
+            replayInputs.set(frame, [p1, p2]);
+        });
+        
+        isReplaying = true;
+        maxReplayFrame = fcr.metadata.totalFrames;
+        localFrameIndex = fcr.initialState ? fcr.inputs[0]?.[0] || 0 : 0;
+        activeReplayP1Mask = 0;
+        activeReplayP2Mask = 0;
+        playbackSpeed = 1;
+        
+        updateReplayUI(true);
+        console.log(`[FcEmu] Replay loaded safely inside loop. ${fcr.inputs.length} deltas. Starting playback.`);
+    } catch (err) {
+        console.error("Failed to apply pending replay:", err);
+        alert(`Failed to apply replay state: ${err.message}`);
+    }
+}
+
+// HUD UI Elements Cache
+const btnRecordToggle = document.getElementById("btn-record-toggle");
+const btnLoadReplay = document.getElementById("btn-load-replay");
+const replayFileInput = document.getElementById("replay-file-input");
+const btnReplaySpeed = document.getElementById("btn-replay-speed");
+
+if (btnRecordToggle) {
+    btnRecordToggle.addEventListener("click", () => {
+        if (isReplaying) {
+            isReplaying = false;
+            updateReplayUI(false);
+            return;
+        }
+        if (isRecording) {
+            stopRecording();
+        } else {
+            startRecording();
+        }
+    });
+}
+
+if (btnLoadReplay && replayFileInput) {
+    btnLoadReplay.addEventListener("click", () => {
+        replayFileInput.click();
+    });
+    
+    replayFileInput.addEventListener("change", (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            loadReplayFile(file);
+        }
+    });
+}
+
+if (btnReplaySpeed) {
+    btnReplaySpeed.addEventListener("click", () => {
+        if (!isReplaying) return;
+        
+        // Cycle speed: 1x -> 2x -> 4x -> 8x -> 1x
+        if (playbackSpeed === 1) {
+            playbackSpeed = 2;
+        } else if (playbackSpeed === 2) {
+            playbackSpeed = 4;
+        } else if (playbackSpeed === 4) {
+            playbackSpeed = 8;
+        } else {
+            playbackSpeed = 1;
+        }
+        
+        btnReplaySpeed.textContent = `${playbackSpeed}.0x ⏩`;
+    });
+}
+
+function updateRecordButtonUI(active) {
+    const svg = document.getElementById("svg-record");
+    if (!svg) return;
+    
+    if (active) {
+        btnRecordToggle.title = "Stop Input Recording";
+        btnRecordToggle.style.borderColor = "#f7768e";
+        svg.innerHTML = `
+            <rect x="6" y="6" width="12" height="12" fill="#f7768e" stroke="#f7768e"/>
+            <style>
+                @keyframes flash { 0% { opacity: 0.3; } 100% { opacity: 1.0; } }
+                #svg-record { animation: flash 0.8s infinite alternate; }
+            </style>
+        `;
+    } else {
+        btnRecordToggle.title = "Start Input Recording (🔴)";
+        btnRecordToggle.style.borderColor = "rgba(255,255,255,0.18)";
+        svg.style.animation = "none";
+        svg.innerHTML = `
+            <circle cx="12" cy="12" r="6" fill="#f7768e" stroke="#f7768e"/>
+        `;
+    }
+}
+
+function updateReplayUI(active) {
+    if (active) {
+        btnReplaySpeed.style.display = "inline-block";
+        btnReplaySpeed.textContent = "1.0x ⏩";
+        btnRecordToggle.title = "Stop Active Replay";
+        btnRecordToggle.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#f7768e" stroke-width="2.5">
+                <rect x="4" y="4" width="16" height="16" fill="#f7768e"/>
+            </svg>
+        `;
+        btnRecordToggle.style.borderColor = "#f7768e";
+    } else {
+        btnReplaySpeed.style.display = "none";
+        playbackSpeed = 1;
+        btnRecordToggle.title = "Start Input Recording (🔴)";
+        btnRecordToggle.style.borderColor = "rgba(255,255,255,0.18)";
+        btnRecordToggle.innerHTML = `
+            <svg id="svg-record" xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <circle cx="12" cy="12" r="6" fill="#f7768e" stroke="#f7768e"/>
+            </svg>
+        `;
+    }
 }

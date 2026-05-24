@@ -188,14 +188,15 @@ impl Cartridge {
     }
 
     pub fn load_state(&mut self, state: &[u8]) -> Result<usize, String> {
-        if state.len() < 8192 + 8 {
+        let prg_ram_len = self.prg_ram.len();
+        if state.len() < prg_ram_len + 8 {
             return Err("State too small for Cartridge".to_string());
         }
         let mut idx = 0;
         
         // Restore PRG RAM
-        self.prg_ram.copy_from_slice(&state[idx..idx + 8192]);
-        idx += 8192;
+        self.prg_ram.copy_from_slice(&state[idx..idx + prg_ram_len]);
+        idx += prg_ram_len;
         
         // Restore CHR RAM
         let chr_ram_len = u32::from_le_bytes(state[idx..idx+4].try_into().unwrap()) as usize;

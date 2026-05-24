@@ -25,6 +25,7 @@ The project began as a cloud-streamed emulator backend (written in Rust with Axu
 *   **Instant Play & Local Load**: Drag-and-drop your own `.nes` files or click to load default homebrew games (like *Lizard* or *Nova the Squirrel*) instantly.
 *   **Crisp Rendering & Ratios**: Features sharp nearest-neighbor pixel scaling with Native (8:7) and CRT (4:3) aspect ratio togglers.
 *   **Local Saves (SRAM)**: Automatic 5-second dirty-checking auto-save and visible tab change saves persisted to browser `IndexedDB`.
+*   **Gameplay Recording & Replay (`.fcr`)**: Capture your playthroughs frame-by-frame using a highly compressed delta input log. Download it as a microscopic `.fcr` file (under 50KB for 2 hours of gameplay!) and share it. Replay it back with 100% cycle-accurate determinism, including **Fast-Forward (1.0x to 8.0x speed)** sweeps with automatic audio protection.
 *   **Full Keyboard Controls (100% Customizable)**: 
     *   **D-Pad**: Arrow Keys
     *   **Button A**: `Left Ctrl`

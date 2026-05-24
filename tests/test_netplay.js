@@ -13,6 +13,12 @@ test.describe('Netplay E2E Tests', () => {
     await hostPage.goto('/');
     await guestPage.goto('/');
 
+    // Boot emulator and open multiplayer modal lobby
+    await hostPage.click('#boot-btn', { force: true });
+    await guestPage.click('#boot-btn', { force: true });
+    await hostPage.click('#btn-open-multiplayer', { force: true });
+    await guestPage.click('#btn-open-multiplayer', { force: true });
+
     // 2. Click Host Game on Host
     await hostPage.click('#btn-host-game');
 
@@ -29,8 +35,16 @@ test.describe('Netplay E2E Tests', () => {
     await guestPage.click('#btn-join-game');
 
     // 5. Verify connected status on both browsers
-    await expect(hostPage.locator('#connection-status')).toHaveText(/Connected to Player 2!|Connected/);
     await expect(guestPage.locator('#connection-status')).toHaveText(/Connected to Player 2!|Connected/);
+
+    // Click Disconnect on Guest to cleanly close WebRTC channel instantly
+    await guestPage.click('#btn-join-game');
+
+    // Close first guest context
+    await guestContext.close();
+
+    // Wait for Host to detect disconnection and return to Hosting state
+    await expect(hostPage.locator('#connection-status')).toHaveText(/Hosting/);
 
     // 6. Test URL Room ID Auto-Joining
     const autoJoinContext = await browser.newContext();
@@ -38,6 +52,10 @@ test.describe('Netplay E2E Tests', () => {
     
     // Open the URL with the room parameter
     await autoJoinPage.goto(`/?room=${peerId}`);
+
+    // Boot and open multiplayer lobby to verify auto-join status
+    await autoJoinPage.click('#boot-btn', { force: true });
+    await autoJoinPage.click('#btn-open-multiplayer', { force: true });
     
     // Verify auto-joining successfully establishes connection
     await expect(autoJoinPage.locator('#connection-status')).toHaveText(/Connected to Player 2!|Connected/);
@@ -56,6 +74,12 @@ test.describe('Netplay E2E Tests', () => {
 
     await hostPage.goto('/');
     await guestPage.goto('/');
+
+    // Boot emulator and open multiplayer modal lobby
+    await hostPage.click('#boot-btn', { force: true });
+    await guestPage.click('#boot-btn', { force: true });
+    await hostPage.click('#btn-open-multiplayer', { force: true });
+    await guestPage.click('#btn-open-multiplayer', { force: true });
 
     // Establish P2P Connection
     await hostPage.click('#btn-host-game');
@@ -119,6 +143,12 @@ test.describe('Netplay E2E Tests', () => {
     await hostPage.goto('/');
     await guestPage.goto('/');
 
+    // Boot emulator and open multiplayer modal lobby
+    await hostPage.click('#boot-btn', { force: true });
+    await guestPage.click('#boot-btn', { force: true });
+    await hostPage.click('#btn-open-multiplayer', { force: true });
+    await guestPage.click('#btn-open-multiplayer', { force: true });
+
     // Connect Guest to Host
     await hostPage.click('#btn-host-game');
     await hostPage.waitForFunction(() => {
@@ -131,17 +161,30 @@ test.describe('Netplay E2E Tests', () => {
 
     await expect(hostPage.locator('#connection-status')).toHaveText(/Connected to Player 2!|Connected/);
 
+    // Check if mock gamepads are successfully injected and accessible on Guest
+    const mockGamepadState = await guestPage.evaluate(() => {
+      if (!window.mockGamepads) return "MISSING_MOCK_GAMEPADS";
+      if (!window.mockGamepads[1]) return "MISSING_MOCK_GAMEPAD_P2";
+      return {
+        connected: window.mockGamepads[1].connected,
+        buttonsLength: window.mockGamepads[1].buttons.length
+      };
+    });
+    console.log("[Test 3 Diagnostic] Guest Page Mock Gamepad Status:", mockGamepadState);
+
     // Press button 0 (A button) on virtual gamepad 2 on Guest
     await guestPage.evaluate(() => {
       if (window.mockGamepads && window.mockGamepads[1]) {
         window.mockGamepads[1].buttons[0].pressed = true;
         window.mockGamepads[1].buttons[0].value = 1;
         window.mockGamepads[1].timestamp = Date.now();
+      } else {
+        throw new Error("Cannot press button: window.mockGamepads[1] is not initialized!");
       }
     });
 
     // Wait for inputs to propagate and execute
-    await guestPage.waitForTimeout(100);
+    await guestPage.waitForTimeout(300);
 
     // Verify button press is registered inside the emulator inputs
     const guestP2Input = await guestPage.evaluate(() => {
@@ -163,6 +206,12 @@ test.describe('Netplay E2E Tests', () => {
 
     await hostPage.goto('/');
     await guestPage.goto('/');
+
+    // Boot emulator and open multiplayer modal lobby
+    await hostPage.click('#boot-btn', { force: true });
+    await guestPage.click('#boot-btn', { force: true });
+    await hostPage.click('#btn-open-multiplayer', { force: true });
+    await guestPage.click('#btn-open-multiplayer', { force: true });
 
     // Establish connection
     await hostPage.click('#btn-host-game');

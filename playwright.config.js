@@ -1,6 +1,7 @@
 import { defineConfig } from '@playwright/test';
 export default defineConfig({
   testDir: './tests',
+  testMatch: '**/test_*.js',
   timeout: 30000,
   use: {
     baseURL: 'http://localhost:5173',
