@@ -300,6 +300,11 @@ For comprehensive integration testing of CPU instructions, instruction timing, A
         *   If `0x00`, terminate with exit code `0` (Pass).
         *   If `> 0x00`, extract the ASCII string starting at `$6004` up to the null terminator, dump it to standard error for developer diagnostics, and terminate with exit code `1` (Fail).
 
+#### 9.2.1 Known Emulation Discrepancies (RMW Dummy Writes & Branch timing)
+While the emulator core successfully passes Blargg's full official CPU instruction sets (`instr_official_only.nes`), it currently has two documented low-level accuracy discrepancies identified by Blargg's diagnostic suites:
+*   **Read-Modify-Write (RMW) Dummy Writes (`cpu_dummy_writes.nes`)**: Standard MOS 6502/Ricoh 2A03 hardware read-modify-write instructions (such as `INC`, `DEC`, `ASL`, `LSR`, `ROL`, `ROR`) perform two write cycles: they first write the original read value back to the target address on cycle 5, before writing the final calculated value exactly 1 cycle later on cycle 6. The `fce_core` CPU currently executes a single write of the final calculated value on cycle 6, bypassing the initial dummy write.
+*   **Branch Cycle-Accurate Timing (`branch_timing.nes`)**: Branch instructions (`Bxx`) on standard Ricoh 2A03 consume 1 extra cycle if the branch is taken, and 2 extra cycles if it crosses a page boundary. If these cycle adjustments are miscalculated, the timing checks will loop infinitely or freeze. The `fce_core` branch instructions currently have a cycle timing deviation under page-boundary conditions, which will be squashed in a future cycle-accuracy alignment sprint.
+
 ### 9.3 E2E Headless Golden Visual Regression Testing
 To prevent regressions in visual synchronization, background nametable scrolling, sprite rendering pipelines, and scanline cycle timing, the CI pipeline integrates automated End-to-End (E2E) headless screen assertion.
 
