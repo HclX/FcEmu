@@ -26,7 +26,10 @@ KNOWN_DISCREPANCIES = [
     "03-immediate.nes",       # Unofficial immediate opcodes
     "07-abs_xy.nes",          # Unofficial absolute opcodes
     "apu_test",               # Advanced APU sub-channel timing limits
-    "apu_reset",              # APU hardware bootup/reset defaults timing
+    "4017_timing.nes",        # APU timing limits
+    "4017_written.nes",       # APU reset defaults timing
+    "len_ctrs_enabled.nes",   # APU length counters enable timing
+    "works_immediately.nes",  # APU power writes timing
     "240p",                   # Advanced PPU visual menu stress suite
     "PaddleTest",             # Custom controller peripheral timing
     "MMC1_A12",               # MMC1 hardware mapper A12 timing splits
