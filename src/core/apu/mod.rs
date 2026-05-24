@@ -366,7 +366,9 @@ impl Apu {
             0x4003 => {
                 self.pulse1.timer_period =
                     (self.pulse1.timer_period & 0x00FF) | (((val & 0x07) as u16) << 8);
-                self.pulse1.length_counter = LENGTH_COUNTER_TABLE[(val >> 3) as usize];
+                if self.pulse1.enabled {
+                    self.pulse1.length_counter = LENGTH_COUNTER_TABLE[(val >> 3) as usize];
+                }
                 self.pulse1.duty_step = 0;
             }
 
@@ -383,7 +385,9 @@ impl Apu {
             0x4007 => {
                 self.pulse2.timer_period =
                     (self.pulse2.timer_period & 0x00FF) | (((val & 0x07) as u16) << 8);
-                self.pulse2.length_counter = LENGTH_COUNTER_TABLE[(val >> 3) as usize];
+                if self.pulse2.enabled {
+                    self.pulse2.length_counter = LENGTH_COUNTER_TABLE[(val >> 3) as usize];
+                }
                 self.pulse2.duty_step = 0;
             }
 
@@ -399,7 +403,9 @@ impl Apu {
             0x400B => {
                 self.triangle.timer_period =
                     (self.triangle.timer_period & 0x00FF) | (((val & 0x07) as u16) << 8);
-                self.triangle.length_counter = LENGTH_COUNTER_TABLE[(val >> 3) as usize];
+                if self.triangle.enabled {
+                    self.triangle.length_counter = LENGTH_COUNTER_TABLE[(val >> 3) as usize];
+                }
                 self.triangle.linear_counter = self.triangle.linear_counter_reload;
             }
 
@@ -414,7 +420,9 @@ impl Apu {
                 self.noise.timer_period = NOISE_PERIOD_TABLE[(val & 0x0F) as usize];
             }
             0x400F => {
-                self.noise.length_counter = LENGTH_COUNTER_TABLE[(val >> 3) as usize];
+                if self.noise.enabled {
+                    self.noise.length_counter = LENGTH_COUNTER_TABLE[(val >> 3) as usize];
+                }
             }
 
             // Status Register
