@@ -12,4 +12,7 @@ curl -L -o tests/roms/cpu_dummy_writes.nes "https://github.com/christopherpow/ne
 echo "Downloading Blargg's Branch Timing Test (Branch Basics)..."
 curl -L -o tests/roms/branch_timing.nes "https://github.com/christopherpow/nes-test-roms/raw/master/branch_timing_tests/1.Branch_Basics.nes"
 
+echo "Downloading J.Y. Company's NEStress Test ROM..."
+curl -L -o tests/roms/nestress.nes "https://github.com/christopherpow/nes-test-roms/raw/master/stress/NEStress.NES"
+
 echo "Download complete!"

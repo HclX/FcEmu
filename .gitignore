@@ -28,3 +28,6 @@ nestest.log
 /pkg
 /node_modules
 package-lock.json
+
+# External test roms repository
+/tests/external_test_roms/
