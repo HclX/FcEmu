@@ -54,6 +54,7 @@ impl Cpu {
     }
 
     pub fn reset<B: CpuBus>(&mut self, bus: &mut B) {
+        bus.reset(); // Cascade hardware/soft reset down to PPU and APU subsystems!
         if self.power_on {
             self.cycles = 7; // Power-on reset sequence cycles
             self.power_on = false;

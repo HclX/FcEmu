@@ -197,6 +197,29 @@ impl Apu {
         }
     }
 
+    pub fn reset(&mut self) {
+        self.pulse1.length_counter = 0;
+        self.pulse1.enabled = false;
+        
+        self.pulse2.length_counter = 0;
+        self.pulse2.enabled = false;
+        
+        self.triangle.length_counter = 0;
+        self.triangle.enabled = false;
+        
+        self.noise.length_counter = 0;
+        self.noise.enabled = false;
+
+        self.frame_counter_cycle = 0;
+        self.frame_counter_step = 0;
+        self.frame_counter_mode = 0;
+        self.irq_enabled = true;
+        self.irq_pending = false;
+        self.dmc_enabled = false;
+        self.dmc_active = false;
+        self.dmc_bytes_remaining = 0;
+    }
+
     // Clock the Quarter Frame (Triangle linear counter)
     fn clock_quarter_frame(&mut self) {
         if self.triangle.control_flag {
@@ -316,6 +339,10 @@ impl Apu {
             if self.dmc_active {
                 status |= 0x10;
             }
+            if self.irq_pending {
+                status |= 0x40;
+            }
+            self.irq_pending = false; // Reading clears Frame IRQ pending flag!
             status
         } else if addr == 0x4017 {
             0x40

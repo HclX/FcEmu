@@ -14,6 +14,7 @@ pub trait CpuBus {
     fn poll_nmi(&mut self) -> bool;
     fn poll_irq(&mut self) -> bool;
     fn clear_nmi(&mut self);
+    fn reset(&mut self);
 }
 
 /// Interface contract between the PPU and the visual memory bus.
@@ -244,5 +245,10 @@ impl CpuBus for SimpleBus {
 
     fn clear_nmi(&mut self) {
         self.ppu.nmi_asserted = false;
+    }
+
+    fn reset(&mut self) {
+        self.apu.reset();
+        self.ppu.reset();
     }
 }
