@@ -14,44 +14,44 @@ The project began as a cloud-streamed emulator backend (written in Rust with Axu
 3.  **Implemented zero-copy browser memory sharing**, allowing JavaScript to cast canvas `ImageData` directly onto Rust WASM linear memory using a high-speed `Uint32Array` (32-bit accelerated writes).
 4.  **Engineered clock-locked dynamic Web Audio queues** with snaps-on-jitter safety logic to eradicate static crackling/noises.
 5.  **Added local SRAM battery persistence** using browser **IndexedDB** keyed on Web Crypto SHA-256 ROM hashes to save game states locally.
-6.  **Configured Vite bundling** and portable relative pathing (`base: "./"`) so the static game hosts out-of-the-box on subdirectory servers.
-7.  **Automated Release CI/CD** via GitHub Actions to build and deploy to GitHub Pages on every push.
+6.  **Implemented a pure "No-Build" architecture** natively loading ES Modules and WebAssembly in the browser, completely purging all heavy bundlers (Vite) and NPM build dependencies.
+7.  **Automated Release CI/CD** via GitHub Actions to compile the Rust WASM core and deploy static assets directly to GitHub Pages on every push.
 
 ---
 
 ## 🎮 Features
 
 *   **Pure Client-Side WASM**: Executes 100% locally inside your browser sandbox. Zero server CPU or bandwidth usage.
-*   **Instant Play & Local Load**: Drag-and-drop your own `.nes` files or click **⚡ Load Default: Pong 1K** to fetch and play instantly.
+*   **Instant Play & Local Load**: Drag-and-drop your own `.nes` files or click to load default homebrew games (like *Lizard* or *Nova the Squirrel*) instantly.
 *   **Crisp Rendering & Ratios**: Features sharp nearest-neighbor pixel scaling with Native (8:7) and CRT (4:3) aspect ratio togglers.
 *   **Local Saves (SRAM)**: Automatic 5-second dirty-checking auto-save and visible tab change saves persisted to browser `IndexedDB`.
-*   **Full Keyboard Controls**: 
-    *   **D-Pad**: Arrow Keys or `W` `A` `S` `D`
-    *   **Button A**: `Z` or `J`
-    *   **Button B**: `X` or `K`
-    *   **Select**: `Right Shift` or `Space`
-    *   **Start**: `Enter`
+*   **Full Keyboard Controls (100% Customizable)**: 
+    *   **D-Pad**: Arrow Keys
+    *   **Button A**: `Left Ctrl`
+    *   **Button B**: `Left Alt`
+    *   **Select**: `Space`
+    *   **Start / Resume**: `Enter`
+    *   **Pause / Menu**: `Escape` (also exits fullscreen and cancels key mapping)
 
 ---
 
 ## 🛠️ Development & Verification
 
-To verify or build the static release bundle locally:
+To compile WASM and preview the emulator locally:
 
-1.  **Compile WASM & Vite Bundle**:
-    Run the automated release script:
+1.  **Compile WASM Core**:
+    Compile the Rust core directly into the `static` folder:
     ```bash
     ./build_web.sh
     ```
-    *(Requires `wasm-pack` and `npm` installed locally).*
+    *(Requires `wasm-pack` installed locally. Zero Node.js or NPM dependencies required!)*
     
 2.  **Local Preview**:
-    Serve the resulting static assets inside `/dist` using any simple HTTP server:
+    Serve the static directory using the optimized Python dev server:
     ```bash
-    npx serve dist/
-    # OR
-    python3 -m http.server -d dist/ 8080
+    python3 server.py
     ```
+    *(This serves the project on `http://localhost:8080/` with caching fully disabled and proper WASM MIME type support).*
 
 For detailed technical specifications, timing sync reviews, and architecture, see the **[DESIGN.md](DESIGN.md)** guide. For extensive local verification and automated deploy configs, see the **[RELEASE.md](RELEASE.md)** manual.
 
