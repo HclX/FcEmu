@@ -917,6 +917,26 @@ impl Cpu {
                 4
             }
 
+            // Undocumented SHX (SXA) abs,Y
+            0x9E => {
+                let low = bus.read(self.pc) as u16;
+                let high = bus.read(self.pc + 1) as u16;
+                let base = (high << 8) | low;
+                self.pc = self.pc.wrapping_add(2);
+                let addr = base.wrapping_add(self.y as u16);
+                let crossed = self.page_crossed(base, addr);
+                let h = (base >> 8) as u8;
+                let val = self.x & h.wrapping_add(1);
+                if crossed {
+                    let l = (addr & 0xFF) as u8;
+                    let target_addr = ((val as u16) << 8) | (l as u16);
+                    bus.write(target_addr, val);
+                } else {
+                    bus.write(addr, val);
+                }
+                5
+            }
+
             // STY
             0x84 => {
                 self.store_reg(AddressingMode::ZeroPage, self.y, bus);
@@ -929,6 +949,26 @@ impl Cpu {
             0x8C => {
                 self.store_reg(AddressingMode::Absolute, self.y, bus);
                 4
+            }
+
+            // Undocumented SHY (SYA) abs,X
+            0x9C => {
+                let low = bus.read(self.pc) as u16;
+                let high = bus.read(self.pc + 1) as u16;
+                let base = (high << 8) | low;
+                self.pc = self.pc.wrapping_add(2);
+                let addr = base.wrapping_add(self.x as u16);
+                let crossed = self.page_crossed(base, addr);
+                let h = (base >> 8) as u8;
+                let val = self.y & h.wrapping_add(1);
+                if crossed {
+                    let l = (addr & 0xFF) as u8;
+                    let target_addr = ((val as u16) << 8) | (l as u16);
+                    bus.write(target_addr, val);
+                } else {
+                    bus.write(addr, val);
+                }
+                5
             }
 
             // CMP

@@ -23,7 +23,6 @@ KNOWN_DISCREPANCIES = [
     "dmc_dma",                # CPU cycle-stealing during DMC DMA
     "sprite_hit_tests",       # Cycle-accurate PPU Sprite 0 hit evaluation
     "vbl_nmi_timing",         # Advanced PPU vertical blank timing limits
-    "07-abs_xy.nes",          # Unofficial absolute opcodes
     "apu_test",               # Advanced APU sub-channel timing limits
     "4017_timing.nes",        # APU timing limits
     "4017_written.nes",       # APU reset defaults timing
