@@ -77,5 +77,9 @@ We would like to express our deep gratitude to the creative developers in the NE
     *   **Developer**: jwarby
     *   **Official Repository**: [jwarby/flappy-bird-nes](https://github.com/jwarby/flappy-bird-nes)
     *   **License**: Open-source free homebrew software.
+*   **Lizard (Demo)**
+    *   **Developer**: Brad Smith (rainwarrior)
+    *   **Official Page & Purchase**: [Lizard on Itch.io](https://rainwarrior.itch.io/lizard)
+    *   **License**: Free playable demo of the commercial homebrew adventure game.
 
 All homebrew ROM binaries are fetched from the community-maintained **[Retrobrews NES Games Collection](https://github.com/retrobrews/nes-games)** and original open-source developer repositories. We encourage players to visit these developers' websites, support their projects, and explore the rich world of modern NES homebrew development!
