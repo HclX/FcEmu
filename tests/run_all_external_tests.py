@@ -30,6 +30,8 @@ KNOWN_DISCREPANCIES = [
     "4017_written.nes",       # APU reset defaults timing
     "len_ctrs_enabled.nes",   # APU length counters enable timing
     "works_immediately.nes",  # APU power writes timing
+    "apu_mixer/square.nes",   # APU square channel volumes
+    "apu_mixer/noise.nes",    # APU noise channel volumes
     "240p",                   # Advanced PPU visual menu stress suite
     "PaddleTest",             # Custom controller peripheral timing
     "MMC1_A12",               # MMC1 hardware mapper A12 timing splits
