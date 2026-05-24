@@ -69,6 +69,7 @@ KNOWN_DISCREPANCIES = [
     "instr_timing",           # Instruction execution cycle timing tests
     "cpu_exec_space",         # CPU execution inside IO / unallocated space timing
     "blargg_ppu_tests_2005.09.15b", # 2005 PPU advanced timing checks
+    "pal_apu_tests",                # PAL APU sequencer timing (unsupported PAL emulation)
 ]
 
 def setup_external_roms():
