@@ -696,6 +696,86 @@ impl Cpu {
                 2
             }
 
+            // Undocumented ANC / AAC
+            0x0B | 0x2B => {
+                self.alu_op(AddressingMode::Immediate, 0, bus);
+                if (self.a & 0x80) != 0 {
+                    self.status |= CARRY;
+                } else {
+                    self.status &= !CARRY;
+                }
+                2
+            }
+
+            // Undocumented ALR / ASR
+            0x4B => {
+                let (addr, _) = self.get_operand_address(AddressingMode::Immediate, bus);
+                self.pc = self.pc.wrapping_add(self.get_instruction_len(AddressingMode::Immediate));
+                let val = bus.read(addr);
+                self.a &= val;
+                if (self.a & 0x01) != 0 {
+                    self.status |= CARRY;
+                } else {
+                    self.status &= !CARRY;
+                }
+                self.a >>= 1;
+                self.update_zero_and_negative_flags(self.a);
+                2
+            }
+
+            // Undocumented ARR
+            0x6B => {
+                let (addr, _) = self.get_operand_address(AddressingMode::Immediate, bus);
+                self.pc = self.pc.wrapping_add(self.get_instruction_len(AddressingMode::Immediate));
+                let val = bus.read(addr);
+                let intermediate = self.a & val;
+                let old_carry = if (self.status & CARRY) != 0 { 0x80 } else { 0 };
+                let result = (intermediate >> 1) | old_carry;
+                self.a = result;
+                self.update_zero_and_negative_flags(self.a);
+                if (result & 0x40) != 0 {
+                    self.status |= CARRY;
+                } else {
+                    self.status &= !CARRY;
+                }
+                let bit6 = (result >> 6) & 1;
+                let bit5 = (result >> 5) & 1;
+                if (bit6 ^ bit5) != 0 {
+                    self.status |= OVERFLOW;
+                } else {
+                    self.status &= !OVERFLOW;
+                }
+                2
+            }
+
+            // Undocumented ATX / LXA
+            0xAB => {
+                let (addr, _) = self.get_operand_address(AddressingMode::Immediate, bus);
+                self.pc = self.pc.wrapping_add(self.get_instruction_len(AddressingMode::Immediate));
+                let val = bus.read(addr);
+                self.a = val;
+                self.x = self.a;
+                self.update_zero_and_negative_flags(self.a);
+                2
+            }
+
+            // Undocumented AXS / SBX
+            0xCB => {
+                let (addr, _) = self.get_operand_address(AddressingMode::Immediate, bus);
+                self.pc = self.pc.wrapping_add(self.get_instruction_len(AddressingMode::Immediate));
+                let val = bus.read(addr);
+                let lhs = self.a & self.x;
+                let result = lhs.wrapping_sub(val);
+                self.x = result;
+                if lhs >= val {
+                    self.status |= CARRY;
+                } else {
+                    self.status &= !CARRY;
+                }
+                self.update_zero_and_negative_flags(self.x);
+                2
+            }
+
 
             // LDA
             0xA9 => {
