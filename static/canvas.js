@@ -865,6 +865,7 @@ async function handleROMBuffer(arrayBuffer, romName = "unknown_rom.nes") {
     const success = emulator.load_rom(uint8Array);
     
     if (success) {
+        applyEmulationRegion();
         console.log("ROM loaded successfully. Starting loop.");
         inputHistory = [];
         localFrameIndex = 0;
@@ -2060,5 +2061,36 @@ if (btnMute) {
     btnMute.addEventListener("click", (e) => {
         e.stopPropagation();
         toggleMute();
+    });
+}
+
+// Apply selected region configuration to the WASM emulator
+function applyEmulationRegion() {
+    if (!emulator) return;
+    const regionSelect = document.getElementById("region-select");
+    if (!regionSelect) return;
+    
+    const selectedMode = regionSelect.value;
+    if (selectedMode === "auto") {
+        const detectedRegion = emulator.get_cartridge_detected_region();
+        emulator.set_region(detectedRegion);
+        console.log(`[FcEmu] Emulation region automatically set to: ${detectedRegion === 0 ? 'NTSC' : 'PAL'}`);
+    } else if (selectedMode === "ntsc") {
+        emulator.set_region(0); // NTSC
+        console.log("[FcEmu] Emulation region manually forced to: NTSC");
+    } else if (selectedMode === "pal") {
+        emulator.set_region(1); // PAL
+        console.log("[FcEmu] Emulation region manually forced to: PAL");
+    }
+}
+
+// Handle manual region override changes
+const regionSelect = document.getElementById("region-select");
+if (regionSelect) {
+    regionSelect.addEventListener("change", () => {
+        if (!emulator) return;
+        applyEmulationRegion();
+        emulator.reset();
+        console.log("[FcEmu] Emulator core reset to synchronize new timing loops.");
     });
 }

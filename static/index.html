@@ -634,6 +634,19 @@
                     <button id="btn-delete-rom" class="btn-control" style="display: none; background-color: rgba(247, 118, 142, 0.15); border-color: #f7768e; color: #f7768e; width: 100%; font-size: 0.8rem; padding: 4px; margin-top: 2px; border-radius: 4px; cursor: pointer;">
                         🗑️ Delete Selected ROM
                     </button>
+                    
+                    <div style="display: flex; flex-direction: column; gap: 6px; width: 100%; margin-top: 10px; border-top: 1px solid var(--border-color); padding-top: 10px;">
+                        <span class="control-label" style="font-size: 0.75rem; color: var(--text-muted); text-align: left;">
+                            EMULATION REGION SPECIFICATION
+                        </span>
+                        <div style="display: flex; width: 100%;">
+                            <select id="region-select" style="flex-grow: 1; background-color: #1a1b26; border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-color); padding: 8px 10px; font-size: 0.85rem; outline: none; cursor: pointer; min-width: 0;">
+                                <option value="auto">🌐 Auto-Detect from Header (Recommended)</option>
+                                <option value="ntsc">🇺🇸 NTSC Mode (60Hz, 262 Scanlines)</option>
+                                <option value="pal">🇪🇺 PAL Mode (50Hz, 312 Scanlines)</option>
+                            </select>
+                        </div>
+                    </div>
                 </div>
             </div>
             
