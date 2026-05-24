@@ -55,7 +55,6 @@ KNOWN_DISCREPANCIES = [
     "spritecans",             # Custom sprite stress timing checks
     "blargg_litewall",        # Visual lightwall demo
     "blargg_nes_cpu_test5",   # Older CPU instruction tests
-    "cpu_reset",              # Advanced CPU reset registers timing
     "cpu_timing_test6",       # Advanced cycle-accurate CPU instruction timing
     "dmc_tests",              # Advanced audio DMC DMA timing checks
     "dpcmletterbox",          # Advanced audio timing
