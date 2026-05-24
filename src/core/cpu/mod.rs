@@ -285,7 +285,9 @@ impl Cpu {
     fn dcp<B: CpuBus>(&mut self, mode: AddressingMode, bus: &mut B) -> bool {
         let (addr, crossed) = self.get_operand_address(mode, bus);
         self.pc = self.pc.wrapping_add(self.get_instruction_len(mode));
-        let val = bus.read(addr).wrapping_sub(1);
+        let orig = bus.read(addr);
+        bus.write(addr, orig); // Dummy write
+        let val = orig.wrapping_sub(1);
         bus.write(addr, val);
         
         let reg_val = self.a;
@@ -302,7 +304,9 @@ impl Cpu {
     fn isb<B: CpuBus>(&mut self, mode: AddressingMode, bus: &mut B) -> bool {
         let (addr, crossed) = self.get_operand_address(mode, bus);
         self.pc = self.pc.wrapping_add(self.get_instruction_len(mode));
-        let val = bus.read(addr).wrapping_add(1);
+        let orig = bus.read(addr);
+        bus.write(addr, orig); // Dummy write
+        let val = orig.wrapping_add(1);
         bus.write(addr, val);
         self.adc(val ^ 0xFF);
         crossed
@@ -312,6 +316,7 @@ impl Cpu {
         let (addr, crossed) = self.get_operand_address(mode, bus);
         self.pc = self.pc.wrapping_add(self.get_instruction_len(mode));
         let mut val = bus.read(addr);
+        bus.write(addr, val); // Dummy write
         if (val & 0x80) != 0 {
             self.status |= CARRY;
         } else {
@@ -328,6 +333,7 @@ impl Cpu {
         let (addr, crossed) = self.get_operand_address(mode, bus);
         self.pc = self.pc.wrapping_add(self.get_instruction_len(mode));
         let mut val = bus.read(addr);
+        bus.write(addr, val); // Dummy write
         let old_carry = if (self.status & CARRY) != 0 { 1 } else { 0 };
         if (val & 0x80) != 0 {
             self.status |= CARRY;
@@ -345,6 +351,7 @@ impl Cpu {
         let (addr, crossed) = self.get_operand_address(mode, bus);
         self.pc = self.pc.wrapping_add(self.get_instruction_len(mode));
         let mut val = bus.read(addr);
+        bus.write(addr, val); // Dummy write
         if (val & 0x01) != 0 {
             self.status |= CARRY;
         } else {
@@ -361,6 +368,7 @@ impl Cpu {
         let (addr, crossed) = self.get_operand_address(mode, bus);
         self.pc = self.pc.wrapping_add(self.get_instruction_len(mode));
         let mut val = bus.read(addr);
+        bus.write(addr, val); // Dummy write
         let old_carry = if (self.status & CARRY) != 0 { 0x80 } else { 0 };
         if (val & 0x01) != 0 {
             self.status |= CARRY;
@@ -1238,7 +1246,9 @@ impl Cpu {
                 };
                 let (addr, _) = self.get_operand_address(mode, bus);
                 self.pc = self.pc.wrapping_add(self.get_instruction_len(mode));
-                let val = bus.read(addr).wrapping_add(1);
+                let orig = bus.read(addr);
+                bus.write(addr, orig); // Dummy write
+                let val = orig.wrapping_add(1);
                 bus.write(addr, val);
                 self.update_zero_and_negative_flags(val);
                 match opcode {
@@ -1259,7 +1269,9 @@ impl Cpu {
                 };
                 let (addr, _) = self.get_operand_address(mode, bus);
                 self.pc = self.pc.wrapping_add(self.get_instruction_len(mode));
-                let val = bus.read(addr).wrapping_sub(1);
+                let orig = bus.read(addr);
+                bus.write(addr, orig); // Dummy write
+                let val = orig.wrapping_sub(1);
                 bus.write(addr, val);
                 self.update_zero_and_negative_flags(val);
                 match opcode {
@@ -1459,6 +1471,7 @@ impl Cpu {
                 let (addr, _) = self.get_operand_address(mode, bus);
                 self.pc = self.pc.wrapping_add(self.get_instruction_len(mode));
                 let mut val = bus.read(addr);
+                bus.write(addr, val); // Dummy write
                 if (val & 0x80) != 0 {
                     self.status |= CARRY;
                 } else {
@@ -1497,6 +1510,7 @@ impl Cpu {
                 let (addr, _) = self.get_operand_address(mode, bus);
                 self.pc = self.pc.wrapping_add(self.get_instruction_len(mode));
                 let mut val = bus.read(addr);
+                bus.write(addr, val); // Dummy write
                 if (val & 0x01) != 0 {
                     self.status |= CARRY;
                 } else {
@@ -1536,6 +1550,7 @@ impl Cpu {
                 let (addr, _) = self.get_operand_address(mode, bus);
                 self.pc = self.pc.wrapping_add(self.get_instruction_len(mode));
                 let mut val = bus.read(addr);
+                bus.write(addr, val); // Dummy write
                 let old_carry = self.status & CARRY;
                 if (val & 0x80) != 0 {
                     self.status |= CARRY;
@@ -1576,6 +1591,7 @@ impl Cpu {
                 let (addr, _) = self.get_operand_address(mode, bus);
                 self.pc = self.pc.wrapping_add(self.get_instruction_len(mode));
                 let mut val = bus.read(addr);
+                bus.write(addr, val); // Dummy write
                 let old_carry = self.status & CARRY;
                 if (val & 0x01) != 0 {
                     self.status |= CARRY;

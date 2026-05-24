@@ -64,9 +64,9 @@ def main():
         },
         {
             "rom": "tests/roms/cpu_dummy_writes.nes",
-            "expected_exit": 1,
-            "expected_stdout": "",
-            "expected_stderr": "Some opcodes failed the test."
+            "expected_exit": 0,
+            "expected_stdout": "Test PASSED!",
+            "expected_stderr": ""
         },
         {
             "rom": "tests/roms/branch_timing.nes",

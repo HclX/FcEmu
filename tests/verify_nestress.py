@@ -8,7 +8,7 @@ import re
 import subprocess
 
 GOLDEN_CHECKPOINTS = {
-    300: "3e50a3c56b2b402af5ad61ef18ab21ec"
+    300: "8a8a5ceb32b4f4bda8e887c1b8e31a41"
 }
 
 def run_headless(headless_bin, rom_path, frames):

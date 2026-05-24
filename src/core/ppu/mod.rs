@@ -32,6 +32,9 @@ pub struct Ppu {
 
     // NMI signaling flags
     pub nmi_asserted: bool,
+
+    // PPU Open Bus latch
+    pub open_bus: u8,
 }
 
 impl Default for Ppu {
@@ -58,6 +61,7 @@ impl Ppu {
             cycle: 0,
             frame_buffer: Box::new([0; 256 * 240 * 4]),
             nmi_asserted: false,
+            open_bus: 0,
         }
     }
 
@@ -76,6 +80,7 @@ impl Ppu {
         self.scanline = 261;
         self.cycle = 0;
         self.nmi_asserted = false;
+        self.open_bus = 0;
     }
 
     pub fn get_palette_addr(&self, addr: u16) -> usize {
@@ -90,32 +95,33 @@ impl Ppu {
     /// Read PPU register from CPU ($2000 - $2007)
     pub fn read_reg<B: PpuBus>(&mut self, addr: u16, bus: &mut B) -> u8 {
         let reg = addr & 0x0007;
-        match reg {
-            // $2000 (PPUCTRL) - Write-only
-            0 => 0,
-            // $2001 (PPUMASK) - Write-only
-            1 => 0,
-            // $2002 (PPUSTATUS)
+        let val = match reg {
+            // $2000 (PPUCTRL) - Write-only, returns open bus
+            0 => self.open_bus,
+            // $2001 (PPUMASK) - Write-only, returns open bus
+            1 => self.open_bus,
+            // $2002 (PPUSTATUS) - status in 7-5, open bus in 4-0
             2 => {
-                let val = self.status;
+                let status_val = self.status & 0xE0;
+                let open_bus_val = self.open_bus & 0x1F;
                 // Clear VBlank flag on read
                 self.status &= !0x80;
                 // Clear write latch
                 self.w = false;
-                val
+                status_val | open_bus_val
             }
-            // $2003 (OAMADDR) - Write-only
-            3 => 0,
+            // $2003 (OAMADDR) - Write-only, returns open bus
+            3 => self.open_bus,
             // $2004 (OAMDATA)
             4 => self.oam_data[self.oam_addr as usize],
-            // $2005 (PPUSCROLL) - Write-only
-            5 => 0,
-            // $2006 (PPUADDR) - Write-only
-            6 => 0,
+            // $2005 (PPUSCROLL) - Write-only, returns open bus
+            5 => self.open_bus,
+            // $2006 (PPUADDR) - Write-only, returns open bus
+            6 => self.open_bus,
             // $2007 (PPUDATA)
             7 => {
                 let access_addr = self.v & 0x3FFF;
-                let val = if access_addr < 0x3F00 {
+                let read_val = if access_addr < 0x3F00 {
                     // Buffered read
                     let buffered = self.data_buffer;
                     self.data_buffer = bus.read(access_addr);
@@ -125,21 +131,29 @@ impl Ppu {
                     let palette_val = self.palette_ram[self.get_palette_addr(access_addr)];
                     // Store background/nametable VRAM behind palette in buffer
                     self.data_buffer = bus.read(access_addr - 0x1000); // dummy read from Nt mirror
-                    palette_val
+                    
+                    // Palette read: upper 2 bits (7-6) are open bus, lower 6 bits (5-0) are palette data
+                    let open_bus_bits = self.open_bus & 0xC0;
+                    let palette_bits = palette_val & 0x3F;
+                    open_bus_bits | palette_bits
                 };
 
                 // Increment VRAM address
                 let increment = if (self.ctrl & 0x04) != 0 { 32 } else { 1 };
                 self.v = self.v.wrapping_add(increment) & 0x7FFF;
 
-                val
+                read_val
             }
-            _ => 0,
-        }
+            _ => self.open_bus,
+        };
+        
+        self.open_bus = val;
+        val
     }
 
     /// Write to PPU register from CPU ($2000 - $2007)
     pub fn write_reg<B: PpuBus>(&mut self, addr: u16, val: u8, bus: &mut B) {
+        self.open_bus = val;
         let reg = addr & 0x0007;
         match reg {
             // $2000 (PPUCTRL)

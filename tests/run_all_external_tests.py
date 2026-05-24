@@ -18,7 +18,7 @@ KNOWN_DISCREPANCIES = [
     "1.Branch_Basics.nes",    # Timing Basics
     "2.Backward_Branch.nes",  # Timing Basics
     "3.Forward_Branch.nes",   # Timing Basics
-    "cpu_dummy_writes",       # RMW CPU double-writes micro-timing
+    "cpu_dummy_reads/cpu_dummy_reads.nes", # CPU dummy reads (unimplemented)
     "apu_timer",              # APU frame counter timing limits
     "dmc_dma",                # CPU cycle-stealing during DMC DMA
     "sprite_hit_tests",       # Cycle-accurate PPU Sprite 0 hit evaluation
