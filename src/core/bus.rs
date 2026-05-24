@@ -185,7 +185,8 @@ impl CpuBus for SimpleBus {
                     self.mem[addr as usize]
                 }
             }
-            _ => self.mem[addr as usize],
+            0x0000..=0x1FFF => self.mem[(addr & 0x07FF) as usize],
+            _ => 0,
         }
     }
 
@@ -204,8 +205,11 @@ impl CpuBus for SimpleBus {
             }
             0x4014 => {
                 let page_addr = (val as u16) << 8;
-                self.ppu
-                    .write_oam_dma(&self.mem[page_addr as usize..(page_addr + 256) as usize]);
+                let mut dma_data = [0u8; 256];
+                for i in 0..256 {
+                    dma_data[i] = self.read(page_addr + i as u16);
+                }
+                self.ppu.write_oam_dma(&dma_data);
             }
             0x4016 => {
                 self.controller_latch = val & 0x01;
@@ -221,9 +225,10 @@ impl CpuBus for SimpleBus {
                     self.mem[addr as usize] = val;
                 }
             }
-            _ => {
-                self.mem[addr as usize] = val;
+            0x0000..=0x1FFF => {
+                self.mem[(addr & 0x07FF) as usize] = val;
             }
+            _ => {}
         }
     }
 
@@ -234,7 +239,7 @@ impl CpuBus for SimpleBus {
     }
 
     fn poll_irq(&mut self) -> bool {
-        false
+        self.apu.poll_irq()
     }
 
     fn clear_nmi(&mut self) {

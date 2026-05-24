@@ -76,7 +76,15 @@ impl Ppu {
         self.scanline = 261;
         self.cycle = 0;
         self.nmi_asserted = false;
-        self.frame_buffer.fill(0);
+    }
+
+    pub fn get_palette_addr(&self, addr: u16) -> usize {
+        let palette_addr = (addr & 0x001F) as usize;
+        if palette_addr >= 16 && palette_addr % 4 == 0 {
+            palette_addr - 16
+        } else {
+            palette_addr
+        }
     }
 
     /// Read PPU register from CPU ($2000 - $2007)
@@ -106,22 +114,23 @@ impl Ppu {
             6 => 0,
             // $2007 (PPUDATA)
             7 => {
-                let val = if self.v < 0x3F00 {
+                let access_addr = self.v & 0x3FFF;
+                let val = if access_addr < 0x3F00 {
                     // Buffered read
                     let buffered = self.data_buffer;
-                    self.data_buffer = bus.read(self.v);
+                    self.data_buffer = bus.read(access_addr);
                     buffered
                 } else {
-                    // Immediate palette read
-                    let palette_val = self.palette_ram[(self.v & 0x001F) as usize];
+                    // Immediate palette read with dynamic hardware mirroring
+                    let palette_val = self.palette_ram[self.get_palette_addr(access_addr)];
                     // Store background/nametable VRAM behind palette in buffer
-                    self.data_buffer = bus.read(self.v - 0x1000); // dummy read from Nt mirror
+                    self.data_buffer = bus.read(access_addr - 0x1000); // dummy read from Nt mirror
                     palette_val
                 };
 
                 // Increment VRAM address
                 let increment = if (self.ctrl & 0x04) != 0 { 32 } else { 1 };
-                self.v = self.v.wrapping_add(increment) & 0x3FFF;
+                self.v = self.v.wrapping_add(increment) & 0x7FFF;
 
                 val
             }
@@ -152,22 +161,17 @@ impl Ppu {
             6 => self.write_addr(val),
             // $2007 (PPUDATA)
             7 => {
-                if self.v < 0x3F00 {
-                    bus.write(self.v, val);
+                let access_addr = self.v & 0x3FFF;
+                if access_addr < 0x3F00 {
+                    bus.write(access_addr, val);
                 } else {
-                    let palette_addr = (self.v & 0x001F) as usize;
-                    // Mirrors for palettes: $3F10, 3F14, 3F18, 3F1C mirror to background colors
-                    let final_addr = if palette_addr >= 16 && palette_addr.is_multiple_of(4) {
-                        palette_addr - 16
-                    } else {
-                        palette_addr
-                    };
+                    let final_addr = self.get_palette_addr(access_addr);
                     self.palette_ram[final_addr] = val;
                 }
 
                 // Increment VRAM address
                 let increment = if (self.ctrl & 0x04) != 0 { 32 } else { 1 };
-                self.v = self.v.wrapping_add(increment) & 0x3FFF;
+                self.v = self.v.wrapping_add(increment) & 0x7FFF;
             }
             _ => {}
         }

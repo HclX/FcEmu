@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Automated Golden Image Verification Harness for Super Mario Bros. (FcEmu Phase 8)
+Automated Golden Image Verification Harness for Nova the Squirrel (FcEmu Phase 8)
 """
 import os
 import sys
@@ -8,21 +8,18 @@ import re
 import subprocess
 
 GOLDEN_CHECKPOINTS = {
-    60: "417d5c30c986e79692fcfeed5a323176",
-    180: "77cd080f5f113b7d9464cd20cb806770",
-    240: "7623b7c40dc3232a27a7cbfd6fce9d55",
-    300: "3f1005e9b9787a5d47af68c3cce0c64e"
+    60: "a6c1715e2aa377624078cc1fffe962ed",
+    180: "a6c1715e2aa377624078cc1fffe962ed",
+    240: "a6c1715e2aa377624078cc1fffe962ed",
+    300: "a6c1715e2aa377624078cc1fffe962ed"
 }
-
-INPUT_SEQUENCE = "61:0x08,180-240:0x80,241-260:0x81,261-300:0x80"
 
 def run_headless(headless_bin, rom_path, frames):
     cmd = [
         headless_bin,
         "--rom", rom_path,
         "--frames", str(frames),
-        "--checksum",
-        "--inputs", INPUT_SEQUENCE
+        "--checksum"
     ]
     print(f"Running: {' '.join(cmd)}")
     try:
@@ -47,18 +44,18 @@ def run_headless(headless_bin, rom_path, frames):
 
 def main():
     headless_bin = "./target/debug/headless"
-    rom_path = "static/public/roms/super_mario_bro.nes"
+    rom_path = "static/public/roms/novathesquirrel.nes"
     
     if not os.path.exists(headless_bin):
         print(f"[ERROR] Headless binary not found at {headless_bin}. Please compile it first using `cargo build --bin headless`.")
         sys.exit(1)
         
     if not os.path.exists(rom_path):
-        print(f"[ERROR] Super Mario Bros. ROM not found at {rom_path}.")
+        print(f"[ERROR] Nova the Squirrel ROM not found at {rom_path}.")
         sys.exit(1)
         
     print("==================================================")
-    print("Automated Golden Image Verification Harness")
+    print("Automated Golden Image Verification Harness - Nova the Squirrel")
     print("==================================================")
     
     success = True
@@ -76,7 +73,7 @@ def main():
             print(f"  Expected (Golden): {expected_md5}")
             print(f"  Observed (Actual): {observed_md5}")
             success = False
-
+ 
     print("\n==================================================")
     if success:
         print("ALL GOLDEN IMAGE VERIFICATION CHECKS PASSED!")

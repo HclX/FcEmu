@@ -72,6 +72,9 @@ impl Ppu {
                 self.status &= !0x80; // Clear VBlank flag
                 self.status &= !0x20; // Clear Sprite Overflow
                 self.nmi_asserted = false;
+                if self.rendering_enabled() {
+                    self.v = self.t;
+                }
             }
         }
 

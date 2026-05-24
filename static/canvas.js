@@ -1,4 +1,24 @@
+
 import init, { WasmEmulator } from "../pkg/fce_core.js";
+
+window.onerror = function(message, source, lineno, colno, error) {
+    const boundary = document.getElementById('global-error-boundary');
+    if (boundary) {
+        boundary.innerText = `FATAL ERROR:\n${message}\nSource: ${source}:${lineno}\nStack:\n${error ? error.stack : 'No stack trace'}`;
+        boundary.style.display = 'block';
+    }
+    return false;
+};
+window.onunhandledrejection = function(event) {
+    const boundary = document.getElementById('global-error-boundary');
+    if (boundary) {
+        boundary.innerText = `UNHANDLED PROMISE REJECTION:\n${event.reason}`;
+        boundary.style.display = 'block';
+    }
+};
+
+// Bug Report Input History Recording variables
+let inputHistory = [];
 
 // Global emulator and Audio state
 let emulator = null;
@@ -27,9 +47,8 @@ let localInputs = {};
 let isHost = false;
 let netplayBlockStartTime = null;
 const DEFAULT_ROMS = {
-    "mario": { name: "Super Mario Bros.", path: "./public/roms/super_mario_bro.nes" },
-    "contra": { name: "Contra", path: "./public/roms/contra.nes" },
-    "multicart": { name: "1200-in-1 Multicart", path: "./public/roms/1200-in-1.nes" }
+    "novathesquirrel": { name: "Nova the Squirrel (Platformer)", path: "./public/roms/novathesquirrel.nes" },
+    "flappybird": { name: "Flappy Bird (Arcade)", path: "./public/roms/flappy-bird.nes" }
 };
 let userRomsCache = {}; // Cache user ROM ArrayBuffers by Hash key
 
@@ -285,6 +304,10 @@ let activeConfigButton = null; // Stores the DOM element currently listening
 
 // Setup event listeners for keyboard input
 window.addEventListener("keydown", (event) => {
+    // Ignore keyboard inputs if focusing on input text fields
+    if (event.target.tagName === "INPUT" || event.target.tagName === "TEXTAREA") {
+        return;
+    }
     // If we are listening for a new key binding
     if (activeConfigButton) {
         event.preventDefault();
@@ -326,6 +349,9 @@ window.addEventListener("keydown", (event) => {
 });
 
 window.addEventListener("keyup", (event) => {
+    if (event.target.tagName === "INPUT" || event.target.tagName === "TEXTAREA") {
+        return;
+    }
     if (KEY_MAP[event.code] !== undefined) {
         controllerState &= ~KEY_MAP[event.code];
         event.preventDefault();
@@ -656,8 +682,15 @@ function loop() {
             spinner.style.display = "none";
         }
 
-        emulator.write_controller(controllerState | window.controllerState);
+        const currentMask = controllerState | window.controllerState;
+        emulator.write_controller(currentMask);
         emulator.write_controller2(window.controller2State);
+        
+        const lastRecordedInput = inputHistory[inputHistory.length - 1];
+        if (!lastRecordedInput || lastRecordedInput.mask !== currentMask) {
+            inputHistory.push({ frame: localFrameIndex, mask: currentMask });
+        }
+
         emulator.step_frame();
 
         localFrameIndex++;
@@ -766,6 +799,8 @@ async function handleROMBuffer(arrayBuffer, romName = "unknown_rom.nes") {
     
     if (success) {
         console.log("ROM loaded successfully. Starting loop.");
+        inputHistory = [];
+        localFrameIndex = 0;
         
 
         // 5. Auto-Restore SRAM if cartridge supports battery-backed SRAM
@@ -1136,7 +1171,7 @@ if (btnDeleteRom) {
 }
 
 async function reloadCurrentSelectedROM() {
-    const val = selectLibrary ? selectLibrary.value : "mario";
+    const val = selectLibrary ? selectLibrary.value : "novathesquirrel";
     if (!val) return;
     try {
         if (DEFAULT_ROMS[val]) {
@@ -1778,11 +1813,80 @@ async function loadState() {
 // Bind Savestate UI Buttons
 const btnSaveState = document.getElementById("btn-save-state");
 const btnLoadState = document.getElementById("btn-load-state");
+const btnExportInputs = document.getElementById("btn-export-inputs");
+
 if (btnSaveState) {
     btnSaveState.addEventListener("click", saveState);
 }
 if (btnLoadState) {
     btnLoadState.addEventListener("click", loadState);
+}
+if (btnExportInputs) {
+    btnExportInputs.addEventListener("click", () => {
+        const inputsString = exportInputsString();
+        if (!inputsString) {
+            alert("No inputs have been recorded yet. Please load a ROM and play first!");
+            return;
+        }
+        prompt(
+            "Here is your exact gameplay input log. Copy this string directly and paste it into your bug report:",
+            inputsString
+        );
+    });
+}
+
+function exportInputsString() {
+    if (inputHistory.length === 0) {
+        return "";
+    }
+    let intervals = [];
+    let currentStartFrame = null;
+    let currentMask = 0;
+
+    for (let i = 0; i < inputHistory.length; i++) {
+        const entry = inputHistory[i];
+        if (currentStartFrame !== null) {
+            const endFrame = entry.frame;
+            if (currentMask > 0 && endFrame > currentStartFrame) {
+                intervals.push(`${currentStartFrame}-${endFrame}:0x${currentMask.toString(16).toUpperCase()}`);
+            }
+        }
+        currentStartFrame = entry.frame;
+        currentMask = entry.mask;
+    }
+
+    if (currentStartFrame !== null && currentMask > 0 && localFrameIndex > currentStartFrame) {
+        intervals.push(`${currentStartFrame}-${localFrameIndex}:0x${currentMask.toString(16).toUpperCase()}`);
+    }
+
+    return intervals.join(",");
+}
+
+// Bind Clear Cache & Reset Button
+const btnClearCache = document.getElementById("btn-clear-cache");
+if (btnClearCache) {
+    btnClearCache.addEventListener("click", () => {
+        if (confirm("Are you sure you want to clear all saved states, cartridge SRAM saves, and force a complete browser reload? This will restore the emulator to a fresh-install state and fix any persisted state corruptions!")) {
+            isRunning = false;
+            localStorage.clear();
+            
+            const req = indexedDB.deleteDatabase("FcEmuDB");
+            req.onsuccess = () => {
+                console.log("[FcEmu] Database cleared successfully.");
+                alert("All emulator caches, saved states, and custom controller settings have been successfully wiped! Force-reloading the page now...");
+                window.location.reload(true);
+            };
+            req.onerror = () => {
+                console.error("[FcEmu] Failed to delete database.");
+                alert("Failed to delete browser database. Force-reloading anyway...");
+                window.location.reload(true);
+            };
+            req.onblocked = () => {
+                console.warn("[FcEmu] Database delete blocked. Reloading page to release blocks...");
+                window.location.reload(true);
+            };
+        }
+    });
 }
 
 // Apply base sizing and initialize WASM Emulator core
@@ -1791,12 +1895,12 @@ initWasm().then(async () => {
     console.log("[FcEmu] Initializing persistent ROM Library Selector & Matchmaker...");
     await refreshRomLibraryUI();
     
-    // Auto-load the default Mario game on initial page bootup!
+    // Auto-load the default Nova the Squirrel homebrew game on initial page bootup!
     if (selectLibrary) {
-        selectLibrary.value = "mario";
+        selectLibrary.value = "novathesquirrel";
         syncDeleteButtonState();
         
-        const romMeta = DEFAULT_ROMS["mario"];
+        const romMeta = DEFAULT_ROMS["novathesquirrel"];
         const response = await fetch(romMeta.path);
         if (response && response.ok) {
             const arrayBuffer = await response.arrayBuffer();

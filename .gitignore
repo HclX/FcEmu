@@ -22,3 +22,9 @@ nestest.log
 
 # Ignore all agent folders
 .agents/
+
+# Web Build & Node Artifacts
+/dist
+/pkg
+/node_modules
+package-lock.json

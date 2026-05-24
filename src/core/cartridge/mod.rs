@@ -1,7 +1,7 @@
 pub mod mapper;
 
 use super::bus::MirroringMode;
-use mapper::{Mapper, Mapper0, Mapper1, Mapper2, Mapper227};
+use mapper::{Mapper, Mapper0, Mapper1, Mapper2, Mapper227, Mapper30};
 
 pub struct Cartridge {
     pub prg_rom: Vec<u8>,
@@ -62,7 +62,11 @@ impl Cartridge {
         };
 
         let chr_ram = if chr_size == 0 {
-            vec![0; 8192] // default 8KB CHR RAM if no CHR ROM
+            if mapper_id == 1 || mapper_id == 30 {
+                vec![0; 32768] // 32KB CHR-RAM for dynamic MMC1 and UNROM 512 bank switching support
+            } else {
+                vec![0; 8192] // default 8KB CHR RAM if no CHR ROM
+            }
         } else {
             Vec::new()
         };
@@ -71,14 +75,17 @@ impl Cartridge {
             0 => Box::new(Mapper0::new(prg_banks, chr_banks)),
             1 => Box::new(Mapper1::new(prg_banks, chr_banks)),
             2 => Box::new(Mapper2::new(prg_banks, chr_banks)),
+            30 => Box::new(Mapper30::new(prg_banks, chr_banks, mirroring)),
             227 => Box::new(Mapper227::new(prg_banks, chr_banks)),
             _ => return Err(format!("Unsupported mapper: {}", mapper_id)),
         };
 
+        let prg_ram_size = if mapper_id == 1 { 32768 } else { 8192 };
+
         Ok(Self {
             prg_rom,
             chr_rom,
-            prg_ram: vec![0; 8192],
+            prg_ram: vec![0; prg_ram_size],
             chr_ram,
             mapper_id,
             mirroring,

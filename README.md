@@ -1,6 +1,6 @@
 # FcEmu — WebAssembly NES Emulator
 
-> **Live Playable Demo**: 🎮 **[Play Super Mario Bros. Live on GitHub Pages!](https://HclX.github.io/FcEmu/)**
+> **Live Playable Demo**: 🎮 **[Play Free Homebrew Games Live on GitHub Pages!](https://HclX.github.io/FcEmu/)**
 
 ---
 
@@ -22,7 +22,7 @@ The project began as a cloud-streamed emulator backend (written in Rust with Axu
 ## 🎮 Features
 
 *   **Pure Client-Side WASM**: Executes 100% locally inside your browser sandbox. Zero server CPU or bandwidth usage.
-*   **Instant Play & Local Load**: Drag-and-drop your own `.nes` files or click **⚡ Load Default: Super Mario Bros.** to fetch and play instantly.
+*   **Instant Play & Local Load**: Drag-and-drop your own `.nes` files or click **⚡ Load Default: Pong 1K** to fetch and play instantly.
 *   **Crisp Rendering & Ratios**: Features sharp nearest-neighbor pixel scaling with Native (8:7) and CRT (4:3) aspect ratio togglers.
 *   **Local Saves (SRAM)**: Automatic 5-second dirty-checking auto-save and visible tab change saves persisted to browser `IndexedDB`.
 *   **Full Keyboard Controls**: 
@@ -54,3 +54,28 @@ To verify or build the static release bundle locally:
     ```
 
 For detailed technical specifications, timing sync reviews, and architecture, see the **[DESIGN.md](DESIGN.md)** guide. For extensive local verification and automated deploy configs, see the **[RELEASE.md](RELEASE.md)** manual.
+
+---
+
+## ⚖️ Legal Disclaimer
+
+**FcEmu** is an independent, open-source, educational emulator project. It is not affiliated with, authorized, sponsored, or endorsed by Nintendo Co., Ltd., its subsidiaries, or affiliates in any way. 
+
+* "Nintendo Entertainment System", "NES", "Famicom", and all associated console designs and game titles are registered trademarks of Nintendo Co., Ltd. All trademarks and copyrights belong to their respective owners.
+* No proprietary or copyrighted Nintendo console BIOS files are included or required by this project.
+* All default ROMs included in the library are free, open-source homebrew games distributed legally with permission from their respective owners.
+
+### 🎮 Homebrew Game Acknowledgements
+
+We would like to express our deep gratitude to the creative developers in the NES homebrew community who created and freely distributed the legal games included in our default library:
+
+*   **Nova the Squirrel**
+    *   **Developer**: NovaSquirrel
+    *   **Official Repository**: [Nova the Squirrel on GitHub](https://github.com/NovaSquirrel/NovaTheSquirrel)
+    *   **License**: Open-source software, GPL-v3 licensed.
+*   **Flappy Bird**
+    *   **Developer**: jwarby
+    *   **Official Repository**: [jwarby/flappy-bird-nes](https://github.com/jwarby/flappy-bird-nes)
+    *   **License**: Open-source free homebrew software.
+
+All homebrew ROM binaries are fetched from the community-maintained **[Retrobrews NES Games Collection](https://github.com/retrobrews/nes-games)** and original open-source developer repositories. We encourage players to visit these developers' websites, support their projects, and explore the rich world of modern NES homebrew development!

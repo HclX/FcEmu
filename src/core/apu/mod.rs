@@ -160,6 +160,12 @@ pub struct Apu {
     pub prev_lpf_output: f32,
     pub frame_counter_cycle: u32,
     pub frame_counter_step: u8,
+    pub frame_counter_mode: u8,
+    pub irq_enabled: bool,
+    pub irq_pending: bool,
+    pub dmc_enabled: bool,
+    pub dmc_active: bool,
+    pub dmc_bytes_remaining: u32,
 }
 
 impl Default for Apu {
@@ -182,6 +188,12 @@ impl Apu {
             prev_lpf_output: 0.0,
             frame_counter_cycle: 0,
             frame_counter_step: 0,
+            frame_counter_mode: 0,
+            irq_enabled: true,
+            irq_pending: false,
+            dmc_enabled: false,
+            dmc_active: false,
+            dmc_bytes_remaining: 0,
         }
     }
 
@@ -215,18 +227,50 @@ impl Apu {
         self.pulse2.tick(cycles);
         self.triangle.tick(cycles);
         self.noise.tick(cycles);
-
-        // Frame counter ticking (NTSC quarter step is 7457 cycles)
-        self.frame_counter_cycle += cycles;
-        while self.frame_counter_cycle >= 7457 {
-            self.clock_quarter_frame();
-            
-            self.frame_counter_step = (self.frame_counter_step + 1) & 3;
-            if self.frame_counter_step == 1 || self.frame_counter_step == 3 {
-                self.clock_half_frame();
+        // Mock DMC playback countdown: decrement by cycles
+        if self.dmc_active && self.dmc_bytes_remaining > 0 {
+            if self.dmc_bytes_remaining > cycles {
+                self.dmc_bytes_remaining -= cycles;
+            } else {
+                self.dmc_bytes_remaining = 0;
+                self.dmc_active = false;
             }
-            
-            self.frame_counter_cycle -= 7457;
+        }
+        // Frame counter ticking (NTSC quarter step is ~7457 cycles)
+        self.frame_counter_cycle += cycles;
+        
+        if self.frame_counter_mode == 0 {
+            // 4-Step Mode (Mode 0)
+            while self.frame_counter_cycle >= 7457 {
+                self.clock_quarter_frame();
+                
+                self.frame_counter_step = (self.frame_counter_step + 1) % 4;
+                if self.frame_counter_step == 1 || self.frame_counter_step == 3 {
+                    self.clock_half_frame();
+                }
+                
+                // Assert APU IRQ at step 3 (end of sequence) if enabled
+                if self.frame_counter_step == 3 && self.irq_enabled {
+                    self.irq_pending = true;
+                }
+                
+                self.frame_counter_cycle -= 7457;
+            }
+        } else {
+            // 5-Step Mode (Mode 1)
+            while self.frame_counter_cycle >= 7457 {
+                self.frame_counter_step = (self.frame_counter_step + 1) % 5;
+                
+                if self.frame_counter_step < 4 {
+                    self.clock_quarter_frame();
+                }
+                
+                if self.frame_counter_step == 1 || self.frame_counter_step == 4 {
+                    self.clock_half_frame();
+                }
+                
+                self.frame_counter_cycle -= 7457;
+            }
         }
 
         self.cycle_accumulator += cycles as f64;
@@ -268,6 +312,9 @@ impl Apu {
             }
             if self.noise.length_counter > 0 {
                 status |= 8;
+            }
+            if self.dmc_active {
+                status |= 0x10;
             }
             status
         } else if addr == 0x4017 {
@@ -364,13 +411,33 @@ impl Apu {
                 if !self.noise.enabled {
                     self.noise.length_counter = 0;
                 }
+
+                self.dmc_enabled = (val & 0x10) != 0;
+                if self.dmc_enabled {
+                    self.dmc_active = true;
+                    self.dmc_bytes_remaining = 200000;
+                } else {
+                    self.dmc_active = false;
+                    self.dmc_bytes_remaining = 0;
+                }
             }
 
-            // Frame counter
-            0x4017 => {}
+            0x4017 => {
+                self.frame_counter_mode = (val >> 7) & 0x01;
+                self.irq_enabled = (val & 0x40) == 0;
+                if !self.irq_enabled {
+                    self.irq_pending = false;
+                }
+            }
 
             _ => {}
         }
+    }
+
+    pub fn poll_irq(&mut self) -> bool {
+        let pending = self.irq_pending;
+        self.irq_pending = false;
+        pending
     }
 }
 

@@ -177,6 +177,18 @@ impl Cpu {
         self.cycles += 7;
     }
 
+    pub fn irq<B: CpuBus>(&mut self, bus: &mut B) {
+        self.push_u16(bus, self.pc);
+        let status = (self.status & !BREAK) | BREAK2;
+        self.push(bus, status);
+        self.status |= INTERRUPT;
+
+        let low = bus.read(0xFFFE) as u16;
+        let high = bus.read(0xFFFF) as u16;
+        self.pc = (high << 8) | low;
+        self.cycles += 7;
+    }
+
     fn branch<B: CpuBus>(&mut self, bus: &mut B, condition: bool) -> u32 {
         let offset = bus.read(self.pc) as i8 as i16;
         self.pc = self.pc.wrapping_add(1);
@@ -398,6 +410,11 @@ impl Cpu {
             return 7;
         }
 
+        if (self.status & INTERRUPT) == 0 && bus.poll_irq() {
+            self.irq(bus);
+            return 7;
+        }
+
         let opcode = bus.read(self.pc);
         let inst_pc = self.pc;
         self.pc = self.pc.wrapping_add(1);
@@ -405,6 +422,19 @@ impl Cpu {
         let start_cycles = self.cycles;
 
         let cycles = match opcode {
+            // BRK (Force Interrupt)
+            0x00 => {
+                self.pc = self.pc.wrapping_add(1); // Point to PC + 2 (BRK is a 2-byte instruction)
+                self.push_u16(bus, self.pc);
+                self.push(bus, self.status | BREAK | BREAK2);
+                self.status |= INTERRUPT;
+
+                let low = bus.read(0xFFFE) as u16;
+                let high = bus.read(0xFFFF) as u16;
+                self.pc = (high << 8) | low;
+                7
+            }
+
             // NOP
             0xEA => 2,
 

@@ -207,6 +207,7 @@ fn main() -> io::Result<()> {
                 let cycles = cpu.step(&mut bus);
                 bus.apu.tick(cycles);
             }
+
             frame_count += 1;
         }
 
@@ -219,6 +220,8 @@ fn main() -> io::Result<()> {
             let digest = md5::compute(*bus.ppu.frame_buffer);
             println!("Frame MD5: {:x}", digest);
         }
+        println!("PALETTE RAM: {:?}", bus.ppu.palette_ram);
+
 
         if let Some(save_p) = save_path {
             let buffer = *bus.ppu.frame_buffer;

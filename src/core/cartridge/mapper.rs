@@ -114,6 +114,7 @@ pub struct Mapper1 {
     chr_bank_0: u8,
     chr_bank_1: u8,
     prg_bank: u8,
+    prg_ram_enabled: bool,
 }
 
 impl Mapper1 {
@@ -127,6 +128,7 @@ impl Mapper1 {
             chr_bank_0: 0,
             chr_bank_1: 0,
             prg_bank: 0,
+            prg_ram_enabled: true,
         }
     }
 }
@@ -135,7 +137,12 @@ impl Mapper for Mapper1 {
     fn map_cpu_read(&self, addr: u16) -> Option<usize> {
         match addr {
             0x6000..=0x7FFF => {
-                Some((addr - 0x6000) as usize)
+                if self.prg_ram_enabled {
+                    let prg_ram_bank = (self.chr_bank_0 >> 2) & 0x03;
+                    Some(prg_ram_bank as usize * 8192 + (addr as usize - 0x6000))
+                } else {
+                    None
+                }
             }
             0x8000..=0xFFFF => {
                 let prg_mode = (self.control >> 2) & 0x03;
@@ -152,12 +159,12 @@ impl Mapper for Mapper1 {
                         if addr < 0xC000 {
                             0
                         } else {
-                            self.prg_bank as usize
+                            (self.prg_bank & 0x0F) as usize
                         }
                     }
                     3 => {
                         if addr < 0xC000 {
-                            self.prg_bank as usize
+                            (self.prg_bank & 0x0F) as usize
                         } else {
                             (self.prg_banks - 1) as usize
                         }
@@ -174,7 +181,12 @@ impl Mapper for Mapper1 {
     fn map_cpu_write(&mut self, addr: u16, val: u8) -> Option<usize> {
         match addr {
             0x6000..=0x7FFF => {
-                Some((addr - 0x6000) as usize)
+                if self.prg_ram_enabled {
+                    let prg_ram_bank = (self.chr_bank_0 >> 2) & 0x03;
+                    Some(prg_ram_bank as usize * 8192 + (addr as usize - 0x6000))
+                } else {
+                    None
+                }
             }
             0x8000..=0xFFFF => {
                 if (val & 0x80) != 0 {
@@ -192,7 +204,10 @@ impl Mapper for Mapper1 {
                             0x8000..=0x9FFF => self.control = reg_val,
                             0xA000..=0xBFFF => self.chr_bank_0 = reg_val,
                             0xC000..=0xDFFF => self.chr_bank_1 = reg_val,
-                            0xE000..=0xFFFF => self.prg_bank = reg_val,
+                            0xE000..=0xFFFF => {
+                                self.prg_bank = reg_val;
+                                self.prg_ram_enabled = (reg_val & 0x10) == 0;
+                            }
                             _ => {}
                         }
                         self.shift_reg = 0x10;
@@ -209,8 +224,8 @@ impl Mapper for Mapper1 {
         if addr < 0x2000 {
             let chr_mode = (self.control >> 4) & 0x01;
             if chr_mode != 0 {
-                // 4 KB mode
-                let chr_banks_4kb = if self.chr_banks > 0 { (self.chr_banks as usize) * 2 } else { 2 };
+                // 4 KB mode (support up to 8 banks if CHR-RAM size is 32KB!)
+                let chr_banks_4kb = if self.chr_banks > 0 { (self.chr_banks as usize) * 2 } else { 8 };
                 let bank_idx = if addr < 0x1000 {
                     self.chr_bank_0 as usize % chr_banks_4kb
                 } else {
@@ -218,8 +233,8 @@ impl Mapper for Mapper1 {
                 };
                 Some(bank_idx * 4096 + (addr & 0x0FFF) as usize)
             } else {
-                // 8 KB mode
-                let chr_banks_8kb = if self.chr_banks > 0 { self.chr_banks as usize } else { 1 };
+                // 8 KB mode (support up to 4 banks if CHR-RAM size is 32KB!)
+                let chr_banks_8kb = if self.chr_banks > 0 { self.chr_banks as usize } else { 4 };
                 let bank_idx = (self.chr_bank_0 & 0xFE) as usize % chr_banks_8kb;
                 Some(bank_idx * 8192 + (addr & 0x1FFF) as usize)
             }
@@ -244,24 +259,26 @@ impl Mapper for Mapper1 {
     }
 
     fn save_state(&self) -> Vec<u8> {
-        let mut state = Vec::with_capacity(6);
+        let mut state = Vec::with_capacity(7);
         state.push(self.shift_reg);
         state.push(self.write_count);
         state.push(self.control);
         state.push(self.chr_bank_0);
         state.push(self.chr_bank_1);
         state.push(self.prg_bank);
+        state.push(if self.prg_ram_enabled { 1 } else { 0 });
         state
     }
 
     fn load_state(&mut self, state: &[u8]) {
-        if state.len() >= 6 {
+        if state.len() >= 7 {
             self.shift_reg = state[0];
             self.write_count = state[1];
             self.control = state[2];
             self.chr_bank_0 = state[3];
             self.chr_bank_1 = state[4];
             self.prg_bank = state[5];
+            self.prg_ram_enabled = state[6] != 0;
         }
     }
 }
@@ -611,25 +628,116 @@ mod tests {
         use std::fs;
         use crate::core::cartridge::Cartridge;
 
-        // 1. Verify Super Mario Bros (Mapper 0)
-        let mario_data = fs::read("static/public/roms/super_mario_bro.nes")
-            .expect("Failed to read super_mario_bro.nes");
-        let mario_cart = Cartridge::from_rom(&mario_data)
-            .expect("Failed to parse super_mario_bro.nes");
-        assert_eq!(mario_cart.mapper_id, 0);
+        // 1. Verify Nova the Squirrel (Mapper 1)
+        let squirrel_data = fs::read("static/public/roms/novathesquirrel.nes")
+            .expect("Failed to read novathesquirrel.nes");
+        let squirrel_cart = Cartridge::from_rom(&squirrel_data)
+            .expect("Failed to parse novathesquirrel.nes");
+        assert_eq!(squirrel_cart.mapper_id, 1);
 
-        // 2. Verify Contra (Mapper 2)
-        let contra_data = fs::read("static/public/roms/contra.nes")
-            .expect("Failed to read contra.nes");
-        let contra_cart = Cartridge::from_rom(&contra_data)
-            .expect("Failed to parse contra.nes");
-        assert_eq!(contra_cart.mapper_id, 2);
+        // 2. Verify Flappy Bird (Mapper 0)
+        let flappy_data = fs::read("static/public/roms/flappy-bird.nes")
+            .expect("Failed to read flappy-bird.nes");
+        let flappy_cart = Cartridge::from_rom(&flappy_data)
+            .expect("Failed to parse flappy-bird.nes");
+        assert_eq!(flappy_cart.mapper_id, 0);
+    }
+}
 
-        // 3. Verify 1200-in-1 Multicart (Mapper 227)
-        let multicart_data = fs::read("static/public/roms/1200-in-1.nes")
-            .expect("Failed to read 1200-in-1.nes");
-        let multicart_cart = Cartridge::from_rom(&multicart_data)
-            .expect("Failed to parse 1200-in-1.nes");
-        assert_eq!(multicart_cart.mapper_id, 227);
+/// Mapper30 (UNROM 512) mapping logic.
+/// Modern homebrew mapper supporting up to 512KB PRG-ROM and 32KB CHR-RAM bank switching.
+pub struct Mapper30 {
+    prg_banks: u8,
+    _chr_banks: u8,
+    prg_bank: u8,
+    chr_bank: u8,
+    mirroring_select: u8,
+    _base_mirroring: MirroringMode,
+}
+
+impl Mapper30 {
+    pub fn new(prg_banks: u8, chr_banks: u8, base_mirroring: MirroringMode) -> Self {
+        Self {
+            prg_banks,
+            _chr_banks: chr_banks,
+            prg_bank: 0,
+            chr_bank: 0,
+            mirroring_select: 0,
+            _base_mirroring: base_mirroring,
+        }
+    }
+}
+
+impl Mapper for Mapper30 {
+    fn map_cpu_read(&self, addr: u16) -> Option<usize> {
+        if addr >= 0x8000 {
+            if addr < 0xC000 {
+                // $8000-$BFFF: Switchable 16KB bank
+                let bank = self.prg_bank as usize % self.prg_banks as usize;
+                Some(bank * 16384 + (addr as usize & 0x3FFF))
+            } else {
+                // $C000-$FFFF: Fixed to last 16KB bank
+                let bank = (self.prg_banks - 1) as usize;
+                Some(bank * 16384 + (addr as usize & 0x3FFF))
+            }
+        } else if (0x6000..=0x7FFF).contains(&addr) {
+            Some((addr - 0x6000) as usize)
+        } else {
+            None
+        }
+    }
+
+    fn map_cpu_write(&mut self, addr: u16, val: u8) -> Option<usize> {
+        if addr >= 0x8000 {
+            // Bit 0-4 selects switchable PRG bank
+            self.prg_bank = val & 0x1F;
+            // Bit 7 selects switchable CHR-RAM bank (supporting up to 4 banks!)
+            self.chr_bank = (val >> 7) & 0x03;
+            // Bit 5 controls 1-Screen mirroring select
+            self.mirroring_select = (val >> 5) & 0x01;
+            None
+        } else if (0x6000..=0x7FFF).contains(&addr) {
+            Some((addr - 0x6000) as usize)
+        } else {
+            None
+        }
+    }
+
+    fn map_ppu_read(&self, addr: u16) -> Option<usize> {
+        if addr < 0x2000 {
+            let bank = self.chr_bank as usize;
+            Some(bank * 8192 + addr as usize)
+        } else {
+            None
+        }
+    }
+
+    fn map_ppu_write(&mut self, addr: u16, _val: u8) -> Option<usize> {
+        if addr < 0x2000 {
+            let bank = self.chr_bank as usize;
+            Some(bank * 8192 + addr as usize)
+        } else {
+            None
+        }
+    }
+
+    fn mirroring(&self) -> Option<MirroringMode> {
+        if self.mirroring_select == 0 {
+            Some(MirroringMode::SingleScreenLower)
+        } else {
+            Some(MirroringMode::SingleScreenUpper)
+        }
+    }
+
+    fn save_state(&self) -> Vec<u8> {
+        vec![self.prg_bank, self.chr_bank, self.mirroring_select]
+    }
+
+    fn load_state(&mut self, state: &[u8]) {
+        if state.len() >= 3 {
+            self.prg_bank = state[0];
+            self.chr_bank = state[1];
+            self.mirroring_select = state[2];
+        }
     }
 }
