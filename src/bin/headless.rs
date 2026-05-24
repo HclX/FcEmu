@@ -13,6 +13,7 @@ fn main() -> io::Result<()> {
     let mut checksum_flag = false;
     let mut inputs_str = None;
     let mut test_flag = false;
+    let mut forced_region = None;
 
     let mut i = 1;
     let mut save_path = None;
@@ -93,6 +94,24 @@ fn main() -> io::Result<()> {
                 test_flag = true;
                 i += 1;
             }
+            "--region" => {
+                if i + 1 < args.len() {
+                    match args[i + 1].to_lowercase().as_str() {
+                        "ntsc" => forced_region = Some(fce_core::core::region::EmulatorRegion::Ntsc),
+                        "pal" => forced_region = Some(fce_core::core::region::EmulatorRegion::Pal),
+                        _ => return Err(io::Error::new(
+                            io::ErrorKind::InvalidInput,
+                            "Invalid value for --region (expected ntsc or pal)",
+                        )),
+                    }
+                    i += 2;
+                } else {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "Missing value for --region",
+                    ));
+                }
+            }
             _ => {
                 i += 1;
             }
@@ -122,10 +141,14 @@ fn main() -> io::Result<()> {
     };
 
     println!(
-        "Loaded Cartridge successfully. Mapper {}",
-        cartridge.mapper_id
+        "Loaded Cartridge successfully. Mapper {}. Region: {:?}",
+        cartridge.mapper_id, cartridge.region
     );
     bus.load_cartridge(cartridge);
+    if let Some(r) = forced_region {
+        println!("Forcing region to {:?}", r);
+        bus.set_region(r);
+    }
 
     // Parse inputs if provided
     let mut input_map = HashMap::new();
@@ -281,7 +304,13 @@ fn main() -> io::Result<()> {
 
             bus.ppu_frame_complete = false;
             while !bus.ppu_frame_complete {
+                bus.cpu_cycles_spent_in_io = 0;
                 let cycles = cpu.step(&mut bus);
+                if cycles > bus.cpu_cycles_spent_in_io {
+                    let idle_cycles = cycles - bus.cpu_cycles_spent_in_io;
+                    let catch_up_ppu = bus.accumulate_ppu_cycles(idle_cycles);
+                    bus.tick_ppu(catch_up_ppu);
+                }
                 bus.apu.tick(cycles);
             }
 
@@ -328,3 +357,129 @@ fn main() -> io::Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+
+    use fce_core::core::cartridge::Cartridge;
+    use fce_core::core::region::EmulatorRegion;
+    use fce_core::core::cpu::Cpu;
+    use fce_core::core::bus::SimpleBus;
+
+    fn make_mock_cartridge(region: EmulatorRegion) -> Cartridge {
+        let mut rom = vec![0; 16 + 16384 + 8192];
+        rom[0..4].copy_from_slice(&[0x4E, 0x45, 0x53, 0x1A]);
+        rom[4] = 1; // 1 PRG bank (16KB)
+        rom[5] = 1; // 1 CHR bank (8KB)
+        
+        // Set region
+        match region {
+            EmulatorRegion::Ntsc => {
+                rom[9] = 0;
+            }
+            EmulatorRegion::Pal => {
+                rom[9] = 1;
+            }
+        }
+
+        // Fill PRG with NOP (0xEA)
+        for i in 16..(16 + 16384) {
+            rom[i] = 0xEA;
+        }
+
+        // Set reset vector to 0x8000
+        let reset_vector_offset = 16 + 16384 - 4;
+        rom[reset_vector_offset] = 0x00;
+        rom[reset_vector_offset + 1] = 0x80;
+
+        Cartridge::from_rom(&rom).unwrap()
+    }
+
+    #[test]
+    fn test_frame_boundary_cycle_counts() {
+        // 1. Test NTSC
+        {
+            let mut bus = SimpleBus::new();
+            let cart = make_mock_cartridge(EmulatorRegion::Ntsc);
+            bus.load_cartridge(cart);
+            let mut cpu = Cpu::new();
+            cpu.reset(&mut bus);
+
+            // Run 1st frame (partial)
+            bus.ppu_frame_complete = false;
+            while !bus.ppu_frame_complete {
+                bus.cpu_cycles_spent_in_io = 0;
+                let cycles = cpu.step(&mut bus);
+                if cycles > bus.cpu_cycles_spent_in_io {
+                    let idle_cycles = cycles - bus.cpu_cycles_spent_in_io;
+                    let catch_up_ppu = bus.accumulate_ppu_cycles(idle_cycles);
+                    bus.tick_ppu(catch_up_ppu);
+                }
+                bus.apu.tick(cycles);
+            }
+
+            // Measure Frame 2
+            let start_cpu_cycles = cpu.cycles;
+            bus.ppu_frame_complete = false;
+            while !bus.ppu_frame_complete {
+                bus.cpu_cycles_spent_in_io = 0;
+                let cycles = cpu.step(&mut bus);
+                if cycles > bus.cpu_cycles_spent_in_io {
+                    let idle_cycles = cycles - bus.cpu_cycles_spent_in_io;
+                    let catch_up_ppu = bus.accumulate_ppu_cycles(idle_cycles);
+                    bus.tick_ppu(catch_up_ppu);
+                }
+                bus.apu.tick(cycles);
+            }
+            
+            let elapsed_cpu_cycles = cpu.cycles - start_cpu_cycles;
+            
+            // Expected NTSC CPU cycles per frame: 29780.66
+            assert!(elapsed_cpu_cycles >= 29770 && elapsed_cpu_cycles <= 29790,
+                    "NTSC frame cycles: {}", elapsed_cpu_cycles);
+        }
+
+        // 2. Test PAL
+        {
+            let mut bus = SimpleBus::new();
+            let cart = make_mock_cartridge(EmulatorRegion::Pal);
+            bus.load_cartridge(cart);
+            let mut cpu = Cpu::new();
+            cpu.reset(&mut bus);
+
+            // Run 1st frame (partial)
+            bus.ppu_frame_complete = false;
+            while !bus.ppu_frame_complete {
+                bus.cpu_cycles_spent_in_io = 0;
+                let cycles = cpu.step(&mut bus);
+                if cycles > bus.cpu_cycles_spent_in_io {
+                    let idle_cycles = cycles - bus.cpu_cycles_spent_in_io;
+                    let catch_up_ppu = bus.accumulate_ppu_cycles(idle_cycles);
+                    bus.tick_ppu(catch_up_ppu);
+                }
+                bus.apu.tick(cycles);
+            }
+
+            // Measure Frame 2
+            let start_cpu_cycles = cpu.cycles;
+            bus.ppu_frame_complete = false;
+            while !bus.ppu_frame_complete {
+                bus.cpu_cycles_spent_in_io = 0;
+                let cycles = cpu.step(&mut bus);
+                if cycles > bus.cpu_cycles_spent_in_io {
+                    let idle_cycles = cycles - bus.cpu_cycles_spent_in_io;
+                    let catch_up_ppu = bus.accumulate_ppu_cycles(idle_cycles);
+                    bus.tick_ppu(catch_up_ppu);
+                }
+                bus.apu.tick(cycles);
+            }
+            
+            let elapsed_cpu_cycles = cpu.cycles - start_cpu_cycles;
+            
+            // Expected PAL CPU cycles per frame: 33247.5
+            assert!(elapsed_cpu_cycles >= 33235 && elapsed_cpu_cycles <= 33260,
+                    "PAL frame cycles: {}", elapsed_cpu_cycles);
+        }
+    }
+}
+

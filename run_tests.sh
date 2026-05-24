@@ -15,15 +15,15 @@ echo "          FcEmu Master Test Suite Execution"
 echo -e "=====================================================${NC}"
 
 # Step 1: Run Cargo unit tests
-echo -e "\n${YELLOW}[Step 1/5] Running Rust Core Unit Tests...${NC}"
+echo -e "\n${YELLOW}[Step 1/6] Running Rust Core Unit Tests...${NC}"
 cargo test
 
 # Step 2: Ensure headless CLI test binary is compiled
-echo -e "\n${YELLOW}[Step 2/5] Compiling Headless CLI Test Binary...${NC}"
+echo -e "\n${YELLOW}[Step 2/6] Compiling Headless CLI Test Binary...${NC}"
 cargo build --bin headless
 
 # Step 3: Run Blargg Test Suite Verification Harness
-echo -e "\n${YELLOW}[Step 3/5] Executing Blargg Automated Test Suite...${NC}"
+echo -e "\n${YELLOW}[Step 3/6] Executing Blargg Automated Test Suite...${NC}"
 
 # Auto-download check for missing official blargg and stress test ROMs
 if [ ! -f "tests/roms/instr_official_only.nes" ] || [ ! -f "tests/roms/cpu_dummy_writes.nes" ] || [ ! -f "tests/roms/branch_timing.nes" ] || [ ! -f "tests/roms/nestress.nes" ]; then
@@ -35,13 +35,18 @@ fi
 python3 tests/verify_blargg_runner.py
 
 # Step 4: Run Nova the Squirrel Visual Golden MD5 Verification Harness
-echo -e "\n${YELLOW}[Step 4/5] Executing Nova the Squirrel Visual Golden Harness...${NC}"
+echo -e "\n${YELLOW}[Step 4/6] Executing Nova the Squirrel Visual Golden Harness...${NC}"
 python3 tests/verify_squirrel.py
 
-# Step 5: Run NEStress Visual Golden MD5 Verification Harness
-echo -e "\n${YELLOW}[Step 5/5] Executing NEStress Visual Golden Harness...${NC}"
+# Step 5: Run NEStress & Flappy PAL Visual Golden MD5 Verification Harnesses
+echo -e "\n${YELLOW}[Step 5/6] Executing Visual Golden Harnesses (NEStress & Flappy PAL)...${NC}"
 python3 tests/verify_nestress.py
+python3 tests/verify_flappy_pal.py
+
+# Step 6: Run Parallel Compatibility Explorer (Unified Blargg + Checksum PAL APU)
+echo -e "\n${YELLOW}[Step 6/6] Executing Parallel Compatibility Explorer...${NC}"
+python3 tests/run_all_external_tests.py
 
 echo -e "\n${GREEN}====================================================="
-echo " 🎉 SUCCESS: ALL FCEMU MASTER TEST SUITES PASSED!"
+echo " 🎉 SUCCESS: ALL FCEMU MASTER 6-STEP TEST SUITES PASSED!"
 echo -e "=====================================================${NC}"

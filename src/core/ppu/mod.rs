@@ -2,6 +2,7 @@ pub mod registers;
 pub mod render;
 
 use crate::core::bus::PpuBus;
+use crate::core::region::{TimingSpec, NTSC_TIMING};
 
 pub struct Ppu {
     // Scroll and Address Registers (Loopy's Registers)
@@ -35,6 +36,7 @@ pub struct Ppu {
 
     // PPU Open Bus latch
     pub open_bus: u8,
+    pub timing: TimingSpec,
 }
 
 impl Default for Ppu {
@@ -57,11 +59,12 @@ impl Ppu {
             oam_addr: 0,
             oam_data: [0; 256],
             palette_ram: [0; 32],
-            scanline: 261, // Start at pre-render scanline
+            scanline: NTSC_TIMING.pre_render_scanline, // Start at pre-render scanline
             cycle: 0,
             frame_buffer: Box::new([0; 256 * 240 * 4]),
             nmi_asserted: false,
             open_bus: 0,
+            timing: NTSC_TIMING,
         }
     }
 
@@ -77,10 +80,15 @@ impl Ppu {
         self.oam_addr = 0;
         self.oam_data = [0; 256];
         self.palette_ram = [0; 32];
-        self.scanline = 261;
+        self.scanline = self.timing.pre_render_scanline;
         self.cycle = 0;
         self.nmi_asserted = false;
         self.open_bus = 0;
+    }
+
+    pub fn set_region(&mut self, timing: TimingSpec) {
+        self.timing = timing;
+        self.scanline = timing.pre_render_scanline;
     }
 
     pub fn get_palette_addr(&self, addr: u16) -> usize {

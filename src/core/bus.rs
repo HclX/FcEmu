@@ -27,6 +27,7 @@ pub trait PpuBus {
 use crate::core::apu::Apu;
 use crate::core::cartridge::Cartridge;
 use crate::core::ppu::Ppu;
+use crate::core::region::{TimingSpec, NTSC_TIMING, PAL_TIMING, EmulatorRegion};
 
 pub struct SimpleBus {
     pub mem: [u8; 65536],
@@ -41,6 +42,9 @@ pub struct SimpleBus {
     pub controller2_shift: u8,
     pub ppu_frame_complete: bool,
     pub ppu_ticked_cycles: u32,
+    pub timing: TimingSpec,
+    pub ppu_accumulator: u32,
+    pub cpu_cycles_spent_in_io: u32,
 }
 
 pub struct SimplePpuBus<'a> {
@@ -126,15 +130,38 @@ impl SimpleBus {
             controller2_shift: 0,
             ppu_frame_complete: false,
             ppu_ticked_cycles: 0,
+            timing: NTSC_TIMING,
+            ppu_accumulator: 0,
+            cpu_cycles_spent_in_io: 0,
         }
     }
 
     pub fn load_cartridge(&mut self, cartridge: Cartridge) {
+        let region = cartridge.region;
         self.cartridge = Some(cartridge);
+        self.set_region(region);
+    }
+
+    pub fn set_region(&mut self, region: EmulatorRegion) {
+        self.timing = match region {
+            EmulatorRegion::Ntsc => NTSC_TIMING,
+            EmulatorRegion::Pal => PAL_TIMING,
+        };
+        self.ppu.set_region(self.timing);
+        self.apu.set_region(self.timing);
+        self.ppu_accumulator = 0;
+        self.cpu_cycles_spent_in_io = 0;
+    }
+
+    pub fn accumulate_ppu_cycles(&mut self, cpu_cycles: u32) -> u32 {
+        self.ppu_accumulator += cpu_cycles * self.timing.ppu_accum_mult;
+        let ppu_cycles = self.ppu_accumulator / self.timing.ppu_accum_div;
+        self.ppu_accumulator %= self.timing.ppu_accum_div;
+        ppu_cycles
     }
 
     pub fn tick_ppu(&mut self, cycles: u32) {
-        self.ppu_ticked_cycles += cycles;
+        self.ppu_ticked_cycles = self.ppu_ticked_cycles.wrapping_add(cycles);
         for _ in 0..cycles {
             let mut ppu_bus = SimplePpuBus {
                 cartridge: &mut self.cartridge,
@@ -149,7 +176,9 @@ impl SimpleBus {
 
 impl CpuBus for SimpleBus {
     fn read(&mut self, addr: u16) -> u8 {
-        self.tick_ppu(3);
+        self.cpu_cycles_spent_in_io += 1;
+        let ppu_cycles = self.accumulate_ppu_cycles(1);
+        self.tick_ppu(ppu_cycles);
         match addr {
             0x2000..=0x3FFF => {
                 let mut ppu_bus = SimplePpuBus {
@@ -192,7 +221,9 @@ impl CpuBus for SimpleBus {
     }
 
     fn write(&mut self, addr: u16, val: u8) {
-        self.tick_ppu(3);
+        self.cpu_cycles_spent_in_io += 1;
+        let ppu_cycles = self.accumulate_ppu_cycles(1);
+        self.tick_ppu(ppu_cycles);
         match addr {
             0x2000..=0x3FFF => {
                 let mut ppu_bus = SimplePpuBus {
@@ -253,3 +284,34 @@ impl CpuBus for SimpleBus {
         self.apu.tick(7); // CPU reset sequence takes 7 cycles, APU runs during this time
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::region::EmulatorRegion;
+
+    #[test]
+    fn test_pal_ppu_fractional_accumulation() {
+        let mut bus = SimpleBus::new();
+        bus.set_region(EmulatorRegion::Pal);
+
+        // Assert PAL timing was loaded
+        assert_eq!(bus.timing.region, EmulatorRegion::Pal);
+
+        // In PAL, PPU-to-CPU ratio is 3.2 (16 PPU cycles for 5 CPU cycles).
+        // The accumulate_ppu_cycles should yield:
+        // Step 1: 1 * 16 / 5 = 3 (accum = 1)
+        // Step 2: 1 * 16 / 5 = 3 (accum = 2)
+        // Step 3: 1 * 16 / 5 = 3 (accum = 3)
+        // Step 4: 1 * 16 / 5 = 3 (accum = 4)
+        // Step 5: 1 * 16 / 5 = 4 (accum = 0)
+        
+        let mut ppu_cycles = Vec::new();
+        for _ in 0..5 {
+            ppu_cycles.push(bus.accumulate_ppu_cycles(1));
+        }
+        assert_eq!(ppu_cycles, vec![3, 3, 3, 3, 4]);
+        assert_eq!(ppu_cycles.iter().sum::<u32>(), 16);
+    }
+}
+

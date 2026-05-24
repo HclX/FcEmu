@@ -46,17 +46,47 @@ impl WasmEmulator {
         self.bus.ppu.reset();
     }
 
+    pub fn get_region(&self) -> u8 {
+        match self.bus.timing.region {
+            crate::core::region::EmulatorRegion::Ntsc => 0,
+            crate::core::region::EmulatorRegion::Pal => 1,
+        }
+    }
+
+    pub fn set_region(&mut self, region: u8) {
+        let r = match region {
+            0 => crate::core::region::EmulatorRegion::Ntsc,
+            1 => crate::core::region::EmulatorRegion::Pal,
+            _ => crate::core::region::EmulatorRegion::Ntsc,
+        };
+        self.bus.set_region(r);
+    }
+
+    pub fn get_cartridge_detected_region(&self) -> u8 {
+        if let Some(ref cart) = self.bus.cartridge {
+            match cart.region {
+                crate::core::region::EmulatorRegion::Ntsc => 0,
+                crate::core::region::EmulatorRegion::Pal => 1,
+            }
+        } else {
+            0 // Default to NTSC
+        }
+    }
+
     /// Steps CPU instruction-by-instruction, syncs PPU, and ticks the APU until the frame is complete.
     pub fn step_frame(&mut self) {
         self.bus.ppu_frame_complete = false;
         while !self.bus.ppu_frame_complete {
             self.bus.ppu_ticked_cycles = 0;
+            self.bus.cpu_cycles_spent_in_io = 0;
+            
             let cycles = self.cpu.step(&mut self.bus);
             
-            let expected_ppu_cycles = cycles * 3;
-            if expected_ppu_cycles > self.bus.ppu_ticked_cycles {
-                let catch_up = expected_ppu_cycles - self.bus.ppu_ticked_cycles;
-                self.bus.tick_ppu(catch_up);
+            // Catch up PPU for idle CPU cycles
+            if cycles > self.bus.cpu_cycles_spent_in_io {
+                let idle_cycles = cycles - self.bus.cpu_cycles_spent_in_io;
+                let catch_up_ppu = self.bus.accumulate_ppu_cycles(idle_cycles);
+                self.bus.tick_ppu(catch_up_ppu);
             }
             
             self.bus.apu.tick(cycles);

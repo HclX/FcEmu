@@ -1,18 +1,9 @@
+use crate::core::region::{TimingSpec, NTSC_TIMING};
+
 const LENGTH_COUNTER_TABLE: [u8; 32] = [
     10, 254, 20, 2, 40, 4, 80, 6, 160, 8, 60, 10, 14, 12, 26, 14, 12, 16, 24, 18, 48, 20, 96, 22,
     192, 24, 72, 26, 16, 28, 32, 30,
 ];
-
-const NOISE_PERIOD_TABLE: [u16; 16] = [
-    4, 8, 16, 32, 64, 96, 128, 160, 202, 254, 380, 508, 762, 1016, 2034, 4068,
-];
-
-const DMC_RATE_TABLE: [u16; 16] = [
-    428, 380, 340, 320, 286, 254, 226, 214, 190, 160, 142, 128, 106,  84,  72,  54
-];
-
-const NTSC_4_STEP_RATES: [u32; 4] = [7457, 7456, 7458, 7458];
-const NTSC_5_STEP_RATES: [u32; 5] = [7457, 7456, 7458, 7458, 7452];
 
 #[derive(Default, Clone)]
 pub struct PulseChannel {
@@ -188,6 +179,7 @@ pub struct Apu {
     pub dmc_irq_pending: bool,
     pub dmc_cycle_counter: u32,
     pub frame_counter_last_val: u8,
+    pub timing: TimingSpec,
 }
 
 impl Default for Apu {
@@ -228,7 +220,12 @@ impl Apu {
             dmc_irq_pending: false,
             dmc_cycle_counter: 0,
             frame_counter_last_val: 0x00,
+            timing: NTSC_TIMING,
         }
+    }
+
+    pub fn set_region(&mut self, timing: TimingSpec) {
+        self.timing = timing;
     }
 
     pub fn reset(&mut self) {
@@ -302,7 +299,7 @@ impl Apu {
             self.frame_counter_cycle += 1;
             if self.frame_counter_mode == 0 {
                 // 4-Step Mode (Mode 0)
-                let limit = NTSC_4_STEP_RATES[self.frame_counter_step as usize];
+                let limit = self.timing.apu_4_step_rates[self.frame_counter_step as usize];
                 
                 if self.frame_counter_cycle >= limit {
                     self.clock_quarter_frame();
@@ -326,7 +323,7 @@ impl Apu {
                 }
             } else {
                 // 5-Step Mode (Mode 1)
-                let limit = NTSC_5_STEP_RATES[self.frame_counter_step as usize];
+                let limit = self.timing.apu_5_step_rates[self.frame_counter_step as usize];
                 if self.frame_counter_cycle >= limit {
                     self.frame_counter_step = (self.frame_counter_step + 1) % 5;
                     if self.frame_counter_step < 4 {
@@ -361,7 +358,7 @@ impl Apu {
         }
 
         self.cycle_accumulator += cycles as f64;
-        let cycle_step = 1789773.0 / 44100.0;
+        let cycle_step = self.timing.cpu_clock_speed / 44100.0;
         while self.cycle_accumulator >= cycle_step {
             let p1 = self.pulse1.sample();
             let p2 = self.pulse2.sample();
@@ -487,7 +484,7 @@ impl Apu {
             0x400D => {}
             0x400E => {
                 self.noise.loop_noise = (val & 0x80) != 0;
-                self.noise.timer_period = NOISE_PERIOD_TABLE[(val & 0x0F) as usize];
+                self.noise.timer_period = self.timing.noise_period_table[(val & 0x0F) as usize];
             }
             0x400F => {
                 if self.noise.enabled {
@@ -499,7 +496,7 @@ impl Apu {
             0x4010 => {
                 self.dmc_irq_enable = (val & 0x80) != 0;
                 self.dmc_loop = (val & 0x40) != 0;
-                self.dmc_rate = DMC_RATE_TABLE[(val & 0x0F) as usize];
+                self.dmc_rate = self.timing.dmc_rate_table[(val & 0x0F) as usize];
                 if !self.dmc_irq_enable {
                     self.dmc_irq_pending = false;
                 }

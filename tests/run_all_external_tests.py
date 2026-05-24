@@ -7,10 +7,30 @@ import os
 import sys
 import subprocess
 import glob
+import re
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 EXTERNAL_REPO_URL = "https://github.com/christopherpow/nes-test-roms.git"
 EXTERNAL_REPO_DIR = "tests/external_test_roms"
+
+# Registry of visual-only or checksum-based validation test ROMs
+VISUAL_VERIFICATION_REGISTRY = {
+    "pal_apu_tests/01.len_ctr.nes": {
+        "frames": 150,
+        "region": "pal",
+        "md5": "6b0268102e5b5135d13cc80e6357b9ac"
+    },
+    "pal_apu_tests/02.len_table.nes": {
+        "frames": 150,
+        "region": "pal",
+        "md5": "d6a9f9eff5d02c9b39fd76ba7d07dc68"
+    },
+    "pal_apu_tests/03.irq_flag.nes": {
+        "frames": 150,
+        "region": "pal",
+        "md5": "737c980db779d519901c9cdbbf8b59e4"
+    },
+}
 
 # List of known timing/mapper ROMs that are skipped or allowed to fail due to documented micro-timing differences
 KNOWN_DISCREPANCIES = [
@@ -69,7 +89,13 @@ KNOWN_DISCREPANCIES = [
     "instr_timing",           # Instruction execution cycle timing tests
     "cpu_exec_space",         # CPU execution inside IO / unallocated space timing
     "blargg_ppu_tests_2005.09.15b", # 2005 PPU advanced timing checks
-    "pal_apu_tests",                # PAL APU sequencer timing (unsupported PAL emulation)
+    "pal_apu_tests/04.clock_jitter.nes",     # PAL APU failing singles
+    "pal_apu_tests/05.len_timing_mode0.nes",
+    "pal_apu_tests/06.len_timing_mode1.nes",
+    "pal_apu_tests/07.irq_flag_timing.nes",
+    "pal_apu_tests/08.irq_timing.nes",
+    "pal_apu_tests/10.len_halt_timing.nes",
+    "pal_apu_tests/11.len_reload_timing.nes",
 ]
 
 def setup_external_roms():
@@ -85,8 +111,47 @@ def audit_single_rom(rom_path, headless_bin):
     """Audits a single ROM headlessly and returns structured results."""
     basename = os.path.basename(rom_path)
     is_discrepancy = any(disc in rom_path for disc in KNOWN_DISCREPANCIES)
-    timeout = 90 if "official_only.nes" in rom_path or "all_instrs.nes" in rom_path else 30
+    
+    # 1. Visual checksum dual-mode checks
+    visual_spec = None
+    for key, spec in VISUAL_VERIFICATION_REGISTRY.items():
+        if key in rom_path:
+            visual_spec = spec
+            break
+            
+    if visual_spec is not None:
+        cmd = [
+            headless_bin,
+            "--rom", rom_path,
+            "--frames", str(visual_spec["frames"]),
+            "--checksum"
+        ]
+        if visual_spec["region"] == "pal":
+            cmd.extend(["--region", "pal"])
+            
+        try:
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=45)
+        except subprocess.TimeoutExpired:
+            return {"rom": rom_path, "status": "FAIL", "message": "Visual test execution timed out"}
+            
+        if res.returncode != 0:
+            msg = res.stderr.strip() if res.stderr else "Execution failed"
+            return {"rom": rom_path, "status": "FAIL", "message": f"Visual test execution crashed: {msg}"}
+            
+        match = re.search(r"Frame MD5:\s*([a-fA-F0-9]{32})", res.stdout)
+        if not match:
+            return {"rom": rom_path, "status": "FAIL", "message": "MD5 checksum not found in output"}
+            
+        observed_md5 = match.group(1).lower()
+        expected_md5 = visual_spec["md5"].lower()
+        
+        if observed_md5 == expected_md5:
+            return {"rom": rom_path, "status": "PASS", "message": f"Visual Frame MD5 verified successfully ({observed_md5})"}
+        else:
+            return {"rom": rom_path, "status": "FAIL", "message": f"Visual MD5 mismatch! Expected: {expected_md5}, Got: {observed_md5}"}
 
+    # 2. Standard Blargg Blaster polling check
+    timeout = 90 if "official_only.nes" in rom_path or "all_instrs.nes" in rom_path else 30
     cmd = [
         headless_bin,
         "--rom", rom_path,

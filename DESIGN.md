@@ -343,3 +343,331 @@ When a user submits a bug report containing their copy-pasteable input history l
 *   **Continuous Diagnostics & Visual Dumps**: The runner executes the mocked inputs up to the reported failure frame, and then saves the pristine RGBA32 frame buffer to a target PNG path (`--save output.png`) or exports every single frame sequentially (`--save-dir directory/`) to review visual transitions pixel-by-pixel. This provides a deterministic, 100% reproducible playground to squash bugs instantly.
 
 
+## 10. NTSC / PAL Hybrid Region Architecture Design
+
+### 10.1 High-Level Architectural Goals
+To resolve visual artifacts, game speed discrepancies, and audio pitch errors in region-specific games (such as the Flappy Bird graphical spillover glitch when run in NTSC mode), the emulator core is extended to support a **Dynamic Hybrid Region Architecture**. 
+
+This design allows the emulator to:
+1.  **Auto-detect** the intended region (NTSC or PAL) from the loaded iNES or NES 2.0 cartridge headers.
+2.  **Dynamically hot-swap** the timing constants, scanline limits, APU frequencies, and PPU-to-CPU cycle synchronization ratios at runtime without restarting the emulation core.
+3.  **Provide manual override controls** via the frontend UI, enabling users to force a specific region mode regardless of header configurations.
+
+### 10.2 NTSC vs PAL Timing Constants Specification
+
+The following table defines the precise hardware timing values that must be dynamically swapped when changing regions:
+
+| Parameter | NTSC Mode | PAL Mode | Architectural Role |
+| :--- | :--- | :--- | :--- |
+| **Master Oscillator** | 21.477272 MHz | 26.601712 MHz | Base clock rate for hardware |
+| **CPU Divider** | 12 | 16 | `Master Clock / 12` vs `/ 16` |
+| **PPU Divider** | 4 | 5 | `Master Clock / 4` vs `/ 5` |
+| **CPU Clock Speed** | ~1.789773 MHz | ~1.661925 MHz | Governs APU tick rate & instruction speed |
+| **PPU Clock Speed** | ~5.369318 MHz | ~5.320342 MHz | Governs pixel rendering rate |
+| **PPU-to-CPU Ratio** | **3.0** | **3.2** (16 PPU / 5 CPU) | Cycle synchronization ratio |
+| **Total Scanlines** | 262 | 312 | Lines per frame (0-indexed: `0..261` vs `0..311`) |
+| **Visible Scanlines**| `0..239` (240 lines) | `0..239` (240 lines) | Active screen rendering window |
+| **Post-Render Line** | 240 (1 line) | 240 (1 line) | Idle line before VBlank triggers |
+| **VBlank Scanlines** | `241..260` (20 lines) | `241..310` (70 lines) | NMI vertical blanking window |
+| **Pre-Render Line** | 261 (1 line) | 311 (1 line) | Scroll register reload line |
+| **Cycles per Scanline**| 341 | 341 | PPU cycles spent per scanline |
+| **Target Frame Rate** | ~60.098 Hz | ~49.986 Hz | Real-time vertical refresh rate |
+| **APU 4-Step Rates** | `[7457, 7456, 7458, 7458]` | `[8313, 8314, 8314, 8314]` | Mode 0 Frame Counter intervals |
+| **APU 5-Step Rates** | `[7457, 7456, 7458, 7458, 7452]` | `[8313, 8314, 8314, 8314, 8310]` | Mode 1 Frame Counter intervals |
+
+### 10.3 Class & Data Structure Layout
+
+The dynamic region state is propagated down the emulation hierarchy through the following struct extensions:
+
+```mermaid
+graph TD
+    Wasm[WasmEmulator] -->|Propagates Override/Auto| Bus[SimpleBus]
+    Cart[Cartridge] -->|Exposes Auto-Detected Region| Bus
+    Bus -->|Configures Region & Synchronizes| CPU[Cpu]
+    Bus -->|Configures Scanlines & Pre-render| PPU[Ppu]
+    Bus -->|Configures Clock Rates & Step Tables| APU[Apu]
+```
+
+#### 1. Region Enumeration
+```rust
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum EmulatorRegion {
+    Ntsc,
+    Pal,
+}
+```
+
+#### 2. Cartridge Header Parsing (`src/core/cartridge/mod.rs`)
+```rust
+pub struct Cartridge {
+    // ... existing fields ...
+    pub region: EmulatorRegion,
+}
+
+impl Cartridge {
+    pub fn from_rom(data: &[u8]) -> Result<Self, String> {
+        // ... existing parsing ...
+        let region = if is_nes_2_0(data) {
+            // NES 2.0 Header Byte 12 (TV System)
+            match data[12] & 0x03 {
+                0x00 => EmulatorRegion::Ntsc,
+                0x01 => EmulatorRegion::Pal,
+                0x02 => EmulatorRegion::Ntsc, // Dual-compatible (default to NTSC)
+                0x03 => EmulatorRegion::Pal,  // Dendy-compatible (treat as PAL timing)
+                _ => EmulatorRegion::Ntsc,
+            }
+        } else {
+            // iNES Header Byte 9 (TV System)
+            if (data[9] & 0x01) != 0 {
+                EmulatorRegion::Pal
+            } else {
+                EmulatorRegion::Ntsc // Default fallback
+            }
+        };
+
+        Ok(Self {
+            // ...
+            region,
+        })
+    }
+}
+```
+
+#### 3. System Bus Extensions (`src/core/bus.rs`)
+`SimpleBus` serves as the central synchronizer, managing fractional PPU-to-CPU ticks and propagating state changes.
+
+```rust
+pub struct SimpleBus {
+    // ... existing fields ...
+    pub region: EmulatorRegion,
+    pub ppu_accumulator: u32,        // Tracks fractional PPU cycles in PAL mode
+    pub cpu_cycles_spent_in_io: u32, // Tracks CPU cycles spent on bus read/write
+}
+
+impl SimpleBus {
+    pub fn set_region(&mut self, region: EmulatorRegion) {
+        self.region = region;
+        self.ppu.set_region(region);
+        self.apu.set_region(region);
+        self.ppu_accumulator = 0;
+        self.cpu_cycles_spent_in_io = 0;
+    }
+
+    /// Mathematically calculates PPU cycles based on elapsed CPU cycles.
+    pub fn accumulate_ppu_cycles(&mut self, cpu_cycles: u32) -> u32 {
+        match self.region {
+            EmulatorRegion::Ntsc => cpu_cycles * 3,
+            EmulatorRegion::Pal => {
+                // PAL ratio is exactly 3.2 (16 PPU cycles per 5 CPU cycles)
+                self.ppu_accumulator += cpu_cycles * 16;
+                let ppu_cycles = self.ppu_accumulator / 5;
+                self.ppu_accumulator %= 5;
+                ppu_cycles
+            }
+        }
+    }
+}
+```
+
+#### 4. Timing Propagation on Bus Read / Write
+On every CPU memory access (`read`/`write`), the bus tracks the spent CPU cycle and ticks the PPU accordingly:
+
+```rust
+impl CpuBus for SimpleBus {
+    fn read(&mut self, addr: u16) -> u8 {
+        self.cpu_cycles_spent_in_io += 1;
+        let ppu_cycles = self.accumulate_ppu_cycles(1);
+        self.tick_ppu(ppu_cycles);
+        
+        // ... perform read ...
+    }
+
+    fn write(&mut self, addr: u16, val: u8) {
+        self.cpu_cycles_spent_in_io += 1;
+        let ppu_cycles = self.accumulate_ppu_cycles(1);
+        self.tick_ppu(ppu_cycles);
+
+        // ... perform write ...
+    }
+}
+```
+
+### 10.4 Dynamic Cycle-Ticking Synchronization Formula
+
+Because PPU stepping operates on integer cycles, the fractional ratio **3.2** for PAL is implemented mathematically via a division-remainder accumulator pattern. 
+
+For any arbitrary block of CPU cycles `C` executed (including "idle" CPU cycles that did not invoke Bus read/write operations):
+
+$$\text{Accumulator}_{\text{new}} = \text{Accumulator}_{\text{old}} + (C \times 16)$$
+
+$$\text{PPU Ticks} = \lfloor \frac{\text{Accumulator}_{\text{new}}}{5} \rfloor$$
+
+$$\text{Remainder} = \text{Accumulator}_{\text{new}} \pmod 5$$
+
+#### Step-Frame Catch-Up Integration (`src/core/wasm.rs`)
+This integration ensures that non-IO CPU cycles are perfectly caught up by the PPU at the end of every instruction block:
+
+```rust
+pub fn step_frame(&mut self) {
+    self.bus.ppu_frame_complete = false;
+    while !self.bus.ppu_frame_complete {
+        self.bus.ppu_ticked_cycles = 0;
+        self.bus.cpu_cycles_spent_in_io = 0;
+        
+        let cycles = self.cpu.step(&mut self.bus);
+        
+        // Catch up PPU for idle CPU cycles
+        if cycles > self.bus.cpu_cycles_spent_in_io {
+            let idle_cycles = cycles - self.bus.cpu_cycles_spent_in_io;
+            let catch_up_ppu = self.bus.accumulate_ppu_cycles(idle_cycles);
+            self.bus.tick_ppu(catch_up_ppu);
+        }
+        
+        self.bus.apu.tick(cycles);
+    }
+}
+```
+
+### 10.5 PPU & APU Region Sensitivity
+
+#### 1. PPU Rendering Pipeline (`src/core/ppu/render.rs`)
+The PPU uses the configured `region` to branch scanline bounds:
+
+```rust
+impl Ppu {
+    pub fn set_region(&mut self, region: EmulatorRegion) {
+        self.region = region;
+    }
+
+    pub fn step<B: PpuBus>(&mut self, bus: &mut B) -> bool {
+        // ... rendering pixel ...
+
+        self.cycle += 1;
+        // ... sprite 0 hit clears on pre-render line ...
+
+        let pre_render_line = match self.region {
+            EmulatorRegion::Ntsc => 261,
+            EmulatorRegion::Pal => 311,
+        };
+        let total_lines = pre_render_line + 1;
+
+        if self.cycle >= 341 {
+            self.cycle = 0;
+            self.scanline += 1;
+
+            if self.scanline == 241 {
+                self.status |= 0x80; // Set VBlank flag
+                // ... assert NMI ...
+            } else if self.scanline >= total_lines {
+                self.scanline = 0;
+                // ... clear flags ...
+            }
+        }
+    }
+}
+```
+
+#### 2. APU Frequency Adaption (`src/core/apu/mod.rs`)
+The APU adjusts its frequency ratios, frame counter rate tables, noise period tables, and DMC rate tables based on the active region:
+
+```rust
+impl Apu {
+    pub fn tick(&mut self, cycles: u32) {
+        // 1. Select correct CPU frequency for audio sampling
+        let cpu_frequency = match self.region {
+            EmulatorRegion::Ntsc => 1789773.0,
+            EmulatorRegion::Pal => 1661925.0,
+        };
+        let cycle_step = cpu_frequency / 44100.0;
+        
+        // ... tick channels ...
+        
+        // 2. Tick Frame Counter using region-aware tables
+        let step_rates = match self.region {
+            EmulatorRegion::Ntsc => &NTSC_STEP_RATES,
+            EmulatorRegion::Pal => &PAL_STEP_RATES,
+        };
+        // ...
+    }
+}
+```
+
+### 10.6 Frontend UI State & Dropdown Mock Design
+
+To expose manual override controls, a new selection dropdown is added within the **ROM Library Modal** (`static/index.html`), placed directly below the library selection bar.
+
+#### 1. HTML Mock Structure
+```html
+<div style="display: flex; flex-direction: column; gap: 6px; width: 100%; margin-top: 8px; border-top: 1px solid var(--border-color); padding-top: 8px;">
+    <span class="control-label" style="font-size: 0.8rem; color: var(--text-muted); text-align: left;">
+        EMULATION REGION SPECIFICATION
+    </span>
+    <div style="display: flex; gap: 8px; width: 100%;">
+        <select id="region-select" style="flex-grow: 1; background-color: #1a1b26; border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-color); padding: 8px 10px; font-size: 0.85rem; outline: none; cursor: pointer;">
+            <option value="auto">🌐 Auto-Detect from Header (Recommended)</option>
+            <option value="ntsc">🇺🇸 NTSC Mode (60Hz, 262 Scanlines)</option>
+            <option value="pal">🇪🇺 PAL Mode (50Hz, 312 Scanlines)</option>
+        </select>
+    </div>
+</div>
+```
+
+#### 2. JavaScript Controller Integration (`static/canvas.js`)
+```javascript
+// Cache UI reference
+const regionSelect = document.getElementById("region-select");
+
+// Handle user override selection
+regionSelect.addEventListener("change", (e) => {
+    const selectedMode = e.target.value;
+    if (selectedMode === "auto") {
+        // Revert to cartridge auto-detected value
+        const detectedRegion = wasmEmulator.get_cartridge_detected_region();
+        wasmEmulator.set_region(detectedRegion);
+    } else if (selectedMode === "ntsc") {
+        wasmEmulator.set_region(0); // NTSC
+    } else if (selectedMode === "pal") {
+        wasmEmulator.set_region(1); // PAL
+    }
+    
+    // Trigger core reset to synchronize newly configured timing loops
+    wasmEmulator.reset();
+});
+
+// Update UI when loading a new ROM
+function onRomLoaded() {
+    if (regionSelect.value === "auto") {
+        const activeRegion = wasmEmulator.get_region(); // Returns currently active region
+        console.log(`Region automatically set to: ${activeRegion === 0 ? 'NTSC' : 'PAL'}`);
+    }
+}
+```
+
+### 10.7 Testing Strategy for the Hybrid Region System
+
+To guarantee absolute correctness of the multi-region timing engine and prevent regressions in NTSC or PAL modes, a strict four-tier testing strategy is implemented:
+
+#### 1. Unit-Testing Fractional PPU Ticking (The 3.2 Ratio Math)
+A dedicated unit test in `src/core/bus.rs` validates that `accumulate_ppu_cycles` clocks the PPU with fractional `3.2` cycle precision using integer-only arithmetic.
+*   **Assertion**: If we tick the bus with `5` CPU cycles sequentially, one-by-one, the PPU must step by exactly `[3, 3, 3, 3, 4]` PPU cycles on each step, aggregating to precisely **`16` PPU cycles** over the 5-cycle block.
+*   **Test Name**: `test_pal_ppu_fractional_accumulation`
+
+#### 2. Unit-Testing Cartridge Header Region Parsing
+A unit test in `src/core/cartridge/mod.rs` verifies that the loader parses region flags correctly.
+*   **Methodology**: We mock a 16-byte iNES header in memory, write to Byte 9 (TV system) or Byte 12 (NES 2.0 TV system), and assert that `Cartridge::from_rom` outputs `EmulatorRegion::Pal` or `EmulatorRegion::Ntsc` correctly without needing external ROM binary files.
+
+#### 3. Integration-Testing Frame Boundary Cycle Audits
+An integration test in `src/bin/headless.rs` runs the emulator for exactly 1 frame under both NTSC and PAL configurations and asserts precise hardware cycle boundaries:
+*   **NTSC Frame Boundary**: 1 NTSC frame must trigger `ppu_frame_complete = true` after exactly **`89,342` PPU cycles** (`262 scanlines * 341 cycles`).
+*   **PAL Frame Boundary**: 1 PAL frame must trigger `ppu_frame_complete = true` after exactly **`106,392` PPU cycles** (`312 scanlines * 341 cycles`).
+
+#### 4. Official PAL Hardware Timing Verification (Blargg's PAL Suites)
+We run official, industry-standard timing check ROMs compiled specifically for PAL hardware:
+*   **Target Test ROM**: `vbl_nmi_timing_pal.nes`
+*   **Methodology**: Executed headlessly in PAL mode. It monitors `$6000` memory ports and asserts `0x00` (Success) to prove that our VBlank timing and NMI triggers perfectly align with physical PAL consoles down to the exact CPU cycle.
+
+#### 5. The Ultimate E2E Flappy Bird Visual Regression Test
+The definitive proof of the design's success is verifying that the Flappy Bird NMI overflow glitch is completely resolved in PAL mode.
+*   **Test Script**: `tests/verify_flappy_pal.py`
+*   **Methodology**: Runs Flappy Bird in PAL mode for exactly **451 frames** using the recorded input sequence. It captures the screen frame buffer at frame 451, computes its MD5 checksum, and asserts that it matches the **glitch-free golden reference** (pristine top sky and clean brown dirt at the bottom), proving the spillover is eliminated.
+

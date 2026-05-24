@@ -29,7 +29,7 @@ impl Ppu {
 
         // Internal scroll/address register updates (Loopy updates during active rendering)
         if self.rendering_enabled()
-            && (self.scanline == 261 || (self.scanline >= 0 && self.scanline < 240))
+            && (self.scanline == self.timing.pre_render_scanline || (self.scanline >= 0 && self.scanline < 240))
         {
             // Increment coarse X every 8 cycles during visible/prerender for cycles 8..=248 (cycle % 8 == 0)
             if self.cycle >= 8 && self.cycle <= 248 && self.cycle % 8 == 0 {
@@ -44,14 +44,14 @@ impl Ppu {
                 self.transfer_x();
             }
             // Transfer Y (vertical reset) during cycles 280..=304 of pre-render scanline 261
-            if self.scanline == 261 && self.cycle >= 280 && self.cycle <= 304 {
+            if self.scanline == self.timing.pre_render_scanline && self.cycle >= 280 && self.cycle <= 304 {
                 self.transfer_y();
             }
         }
 
         // Timings & cycle updates
         self.cycle += 1;
-        if self.scanline == 261 && self.cycle == 1 {
+        if self.scanline == self.timing.pre_render_scanline && self.cycle == 1 {
             self.status &= !0x40; // Clear Sprite 0 Hit
         }
 
@@ -66,7 +66,7 @@ impl Ppu {
                     self.nmi_asserted = true;
                 }
                 frame_complete = true;
-            } else if self.scanline >= 262 {
+            } else if self.scanline >= self.timing.total_scanlines {
                 self.scanline = 0;
                 // Pre-render scanline complete, clear flags
                 self.status &= !0x80; // Clear VBlank flag

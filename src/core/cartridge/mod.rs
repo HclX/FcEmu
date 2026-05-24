@@ -1,6 +1,7 @@
 pub mod mapper;
 
 use super::bus::MirroringMode;
+use super::region::EmulatorRegion;
 use mapper::{Mapper, Mapper0, Mapper1, Mapper2, Mapper227, Mapper30, Mapper34};
 
 pub struct Cartridge {
@@ -12,6 +13,7 @@ pub struct Cartridge {
     pub mirroring: MirroringMode,
     pub has_battery: bool,
     pub mapper: Box<dyn Mapper>,
+    pub region: EmulatorRegion,
 }
 
 impl Cartridge {
@@ -83,6 +85,23 @@ impl Cartridge {
 
         let prg_ram_size = if mapper_id == 1 { 32768 } else { 8192 };
 
+        let is_nes_2_0 = (data[7] & 0x0C) == 0x08;
+        let region = if is_nes_2_0 {
+            match data[12] & 0x03 {
+                0x00 => EmulatorRegion::Ntsc,
+                0x01 => EmulatorRegion::Pal,
+                0x02 => EmulatorRegion::Ntsc,
+                0x03 => EmulatorRegion::Pal,
+                _ => EmulatorRegion::Ntsc,
+            }
+        } else {
+            if (data[9] & 0x01) != 0 {
+                EmulatorRegion::Pal
+            } else {
+                EmulatorRegion::Ntsc
+            }
+        };
+
         Ok(Self {
             prg_rom,
             chr_rom,
@@ -92,6 +111,7 @@ impl Cartridge {
             mirroring,
             has_battery,
             mapper,
+            region,
         })
     }
 
@@ -208,3 +228,53 @@ impl Cartridge {
         Ok(idx)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::region::EmulatorRegion;
+
+    fn make_rom_header(region_byte_9: u8, is_nes_2: bool, region_byte_12: u8) -> Vec<u8> {
+        let mut header = vec![0; 16 + 16384 + 8192]; // 16B header + 16KB PRG + 8KB CHR
+        header[0..4].copy_from_slice(&[0x4E, 0x45, 0x53, 0x1A]); // "NES\x1a"
+        header[4] = 1; // 1 PRG bank
+        header[5] = 1; // 1 CHR bank
+        
+        if is_nes_2 {
+            header[7] = (header[7] & !0x0C) | 0x08; // Set NES 2.0 format flag
+            header[12] = region_byte_12;
+        } else {
+            header[9] = region_byte_9;
+        }
+        header
+    }
+
+    #[test]
+    fn test_cartridge_region_parsing() {
+        // 1. iNES NTSC
+        let rom = make_rom_header(0x00, false, 0);
+        let cart = Cartridge::from_rom(&rom).unwrap();
+        assert_eq!(cart.region, EmulatorRegion::Ntsc);
+
+        // 2. iNES PAL
+        let rom = make_rom_header(0x01, false, 0);
+        let cart = Cartridge::from_rom(&rom).unwrap();
+        assert_eq!(cart.region, EmulatorRegion::Pal);
+
+        // 3. NES 2.0 NTSC
+        let rom = make_rom_header(0, true, 0x00);
+        let cart = Cartridge::from_rom(&rom).unwrap();
+        assert_eq!(cart.region, EmulatorRegion::Ntsc);
+
+        // 4. NES 2.0 PAL
+        let rom = make_rom_header(0, true, 0x01);
+        let cart = Cartridge::from_rom(&rom).unwrap();
+        assert_eq!(cart.region, EmulatorRegion::Pal);
+
+        // 5. NES 2.0 Dual Compatible (we map to NTSC as default)
+        let rom = make_rom_header(0, true, 0x02);
+        let cart = Cartridge::from_rom(&rom).unwrap();
+        assert_eq!(cart.region, EmulatorRegion::Ntsc);
+    }
+}
+
