@@ -30,6 +30,7 @@ pub struct Cpu {
     pub sp: u8,      // Stack Pointer
     pub status: u8,  // Status Flags
     pub cycles: u64, // Elapsed CPU cycles
+    pub power_on: bool, // First power-on boot reset flag
 }
 
 impl Default for Cpu {
@@ -46,18 +47,21 @@ impl Cpu {
             y: 0,
             pc: 0xC000,
             sp: 0xFD,
-            status: 0x24, // Status starts with INTERRUPT and BREAK2 set
+            status: 0x34, // Status starts with INTERRUPT, BREAK2 and unused bit 5 set (0x34)
             cycles: 0,
+            power_on: true,
         }
     }
 
     pub fn reset<B: CpuBus>(&mut self, bus: &mut B) {
-        self.a = 0;
-        self.x = 0;
-        self.y = 0;
-        self.sp = 0xFD;
-        self.status = 0x24;
-        self.cycles = 8; // reset sequence cycles
+        if self.power_on {
+            self.cycles = 7; // Power-on reset sequence cycles
+            self.power_on = false;
+        } else {
+            self.sp = self.sp.wrapping_sub(3);
+            self.status |= 0x04; // Set Interrupt Disable flag (I = 1)
+            self.cycles = 7;     // Soft reset takes exactly 7 cycles
+        }
         let low = bus.read(0xFFFC) as u16;
         let high = bus.read(0xFFFD) as u16;
         self.pc = (high << 8) | low;
