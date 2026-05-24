@@ -22,6 +22,12 @@ The project began as a cloud-streamed emulator backend (written in Rust with Axu
 ## 🎮 Features
 
 *   **Pure Client-Side WASM**: Executes 100% locally inside your browser sandbox. Zero server CPU or bandwidth usage.
+*   **Landscape-Only Dedicated Mobile SPA Console**: Immediate device routing from `/index.html` to `/mobile.html` with zero-latency responsive overlays.
+*   **Ergonomic Translucent Mobile Touch Controls**: 
+    *   **Slided D-Pad**: Smart arctangent-based multi-touch calculation maps slide vectors smoothly to NES directional inputs.
+    *   **Comfort Placement A/B Buttons**: Slanted retro layout matching real handheld devices.
+    *   **Zero-latency tactile haptics** (`navigator.vibrate`).
+    *   **Absolute Viewport Locks**: Purged all pinch-zoom/scroll gestures for a native console feel.
 *   **Instant Play & Local Load**: Drag-and-drop your own `.nes` files or click to load default homebrew games (like *Lizard* or *Nova the Squirrel*) instantly.
 *   **Crisp Rendering & Ratios**: Features sharp nearest-neighbor pixel scaling with Native (8:7) and CRT (4:3) aspect ratio togglers.
 *   **Local Saves (SRAM)**: Automatic 5-second dirty-checking auto-save and visible tab change saves persisted to browser `IndexedDB`.
