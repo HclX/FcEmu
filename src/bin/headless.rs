@@ -1,4 +1,4 @@
-use fce_core::core::bus::SimpleBus;
+use fce_core::core::bus::{SimpleBus, CpuBus};
 use fce_core::core::cpu::Cpu;
 use std::collections::HashMap;
 use std::env;
@@ -12,6 +12,7 @@ fn main() -> io::Result<()> {
     let mut frames = 0;
     let mut checksum_flag = false;
     let mut inputs_str = None;
+    let mut test_flag = false;
 
     let mut i = 1;
     let mut save_path = None;
@@ -88,6 +89,10 @@ fn main() -> io::Result<()> {
                     ));
                 }
             }
+            "--test" => {
+                test_flag = true;
+                i += 1;
+            }
             _ => {
                 i += 1;
             }
@@ -97,7 +102,7 @@ fn main() -> io::Result<()> {
     let rom_path = match rom_path {
         Some(p) => p,
         None => {
-            println!("Usage: headless --rom <path> [--log <path>] [--frames <number>] [--checksum] [--inputs <string>]");
+            println!("Usage: headless --rom <path> [--log <path>] [--frames <number>] [--checksum] [--inputs <string>] [--test]");
             return Ok(());
         }
     };
@@ -192,6 +197,78 @@ fn main() -> io::Result<()> {
             );
             log_file.write_all(log_line.as_bytes())?;
             cpu.step(&mut bus);
+        }
+    } else if test_flag {
+        let mut cpu = Cpu::new();
+        cpu.reset(&mut bus);
+
+        let mut signature_verified = false;
+        let mut reset_delay_cycles = 0u32;
+        let mut reset_requested = false;
+
+        println!("Running Blargg test runner...");
+        loop {
+            let cycles = cpu.step(&mut bus);
+            bus.apu.tick(cycles);
+
+            if !signature_verified {
+                let b1 = if let Some(ref cart) = bus.cartridge { cart.read_cpu(0x6001) } else { bus.mem[0x6001] };
+                let b2 = if let Some(ref cart) = bus.cartridge { cart.read_cpu(0x6002) } else { bus.mem[0x6002] };
+                let b3 = if let Some(ref cart) = bus.cartridge { cart.read_cpu(0x6003) } else { bus.mem[0x6003] };
+                if b1 == 0xDE && b2 == 0xB0 && b3 == 0x61 {
+                    signature_verified = true;
+                    println!("Blargg test signature verified: 0xDE 0xB0 0x61");
+                }
+            } else {
+                let status = if let Some(ref cart) = bus.cartridge { cart.read_cpu(0x6000) } else { bus.mem[0x6000] };
+                match status {
+                    0x80 => {
+                        // Test is running, continue
+                    }
+                    0x81 => {
+                        if !reset_requested {
+                            reset_requested = true;
+                            reset_delay_cycles = 0;
+                            println!("Reset requested by test ROM. Simulating 100ms delay...");
+                        }
+                    }
+                    0x00 => {
+                        println!("Test PASSED!");
+                        std::process::exit(0);
+                    }
+                    0x01..=0x7F => {
+                        eprintln!("Test FAILED with status: 0x{:02X}", status);
+                        let mut msg = Vec::new();
+                        let mut addr = 0x6004;
+                        loop {
+                            let c = if let Some(ref cart) = bus.cartridge { cart.read_cpu(addr) } else { bus.mem[addr as usize] };
+                            if c == 0 {
+                                break;
+                            }
+                            msg.push(c);
+                            addr += 1;
+                        }
+                        if let Ok(s) = String::from_utf8(msg) {
+                            eprintln!("Diagnostics:\n{}", s);
+                        } else {
+                            eprintln!("Failed to parse diagnostics as UTF-8");
+                        }
+                        std::process::exit(1);
+                    }
+                    _ => {}
+                }
+
+                if reset_requested {
+                    reset_delay_cycles += cycles;
+                    if reset_delay_cycles >= 180000 {
+                        println!("Delay complete. Resetting CPU.");
+                        cpu.reset(&mut bus);
+                        // Clear reset status to "running" to avoid immediate re-triggering
+                        bus.write(0x6000, 0x80);
+                        reset_requested = false;
+                    }
+                }
+            }
         }
     } else if frames > 0 {
         let mut cpu = Cpu::new();
