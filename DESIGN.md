@@ -253,3 +253,88 @@ The connection control panel utilizes a strict, mutually exclusive state machine
 | **3. HOST-CONN** | Guest connects | **Disabled ("Hosting")**, Grayed out | **Locked (readOnly = true)** | **Enabled ("Disconnect")** | "Connected to Player 2!" (Green) |
 | **4. CONNECTING** | Guest clicks "Join" | **Disabled ("Host Game")**, Grayed out | **Locked (readOnly = true)** | **Disabled ("Connecting...")**, locks interactions | "Connecting..." (Yellow) |
 | **5. GUEST-CONN** | Connection established | **Disabled ("Host Game")**, Grayed out | **Locked (readOnly = true)** | **Enabled ("Disconnect")** | "Connected to Player 1 (Host)!" (Green) |
+
+---
+
+## 9. Automated Compatibility Testing Design
+
+Automated compatibility testing ensures the emulator remains highly accurate, prevents regression during optimizations, and allows seamless validation across commits within a CI/CD environment.
+
+### 9.1 CPU Instruction Verification (nestest.nes & nestest.log trace diff audits)
+To ensure 100% accuracy of the modified 6502 CPU, the emulator incorporates headless instruction auditing utilizing Kevtris's **`nestest.nes`** validation ROM and its accompanying **`nestest.log`** golden trace.
+
+*   **Automated Execution Mode**: The headless CLI test runner loads `nestest.nes` and forces the CPU program counter (`PC`) to bypass the standard reset vector and boot directly at `$C000`.
+*   **Trace Generation Format**: For every single cycle/instruction executed, the CPU writes a formatted execution log to stdout matching the precise syntax of `nestest.log`:
+    ```
+    C000  4C F5 C5    JMP $C5F5             A:00 X:00 Y:00 P:24 SP:FD CYC:  0
+    ```
+    *   **Address**: Hexadecimal instruction start address (`$C000`).
+    *   **Machine Code**: Opcode bytes (`4C F5 C5`).
+    *   **Disassembly**: Clean assembly instruction (`JMP $C5F5`).
+    *   **Registers**: Exact status of CPU registers at instruction start: Accumulator (`A`), index registers (`X`, `Y`), Processor Status flags byte (`P`), Stack Pointer (`SP`).
+    *   **Clocks**: Absolute cumulative clock cycles (`CYC`) aligned with CPU timing specifications.
+*   **CI Diff Pipeline**: The continuous integration server runs the test ROM for a fixed count of exactly `26,554` cycles (covering all official instruction paths). The resulting trace output is streamed directly into a strict, line-by-line text comparison (diff) against `nestest.log`. Any register mismatch or cycle count drift immediately triggers a build failure, pointing exactly to the faulty instruction line.
+
+### 9.2 Blargg's ROM Test Suite Harnessing (PRG-RAM Status Port $6000-$6003)
+For comprehensive integration testing of CPU instructions, instruction timing, APU noise channels, PPU VBlank timing, and memory mappers, the engine implements an automated test harness for **Blargg's ROM Test Suite**.
+
+*   **Headless PRG-RAM Communication Interface**: Rather than relying on video rendering to display test status, Blargg's ROMs write results to the cartridge's PRG Save-RAM (WRAM) area starting at `$6000`. The emulator must expose and allocate 8KB of read/write RAM at `$6000–$7FFF`.
+*   **Polled Addresses and Status Codes**:
+    *   **Status Port (`$6000`)**: Pollable byte representing the active state of the test.
+        *   `0x80`: Test is currently active/running.
+        *   `0x81`: Test is waiting for a hardware reset. The headless runner must trigger a CPU reset signal after a simulated delay of at least 100ms.
+        *   `0x00`: Success (all test cases passed).
+        *   `0x01–0x7F`: Failure. The byte specifies the exact code of the failed sub-test or instruction group.
+    *   **Magic Signature Verification (`$6001–$6003`)**: To differentiate active test ROM environments from standard game writes, the test ROM writes a signature on boot:
+        *   `$6001` = `0xDE`
+        *   `$6002` = `0xB0`
+        *   `$6003` = `0x61`
+        The automated runner validates this signature before trusting WRAM status bytes.
+    *   **Diagnostic Output Stream (`$6004+`)**: Human-readable diagnostic messages and descriptions of the test failure are written sequentially as a null-terminated (`0x00`) ASCII string starting at `$6004`.
+*   **Headless Runner Loop**:
+    1. Load the blargg test ROM (`.nes`) into the core memory.
+    2. Tick the emulation loop at maximum speed without frame rate capping.
+    3. Continuously poll memory range `$6001–$6003` for the `0xDE, 0xB0, 0x61` signature.
+    4. Once verified, watch `$6000`. If `$6000 == 0x81`, trigger `cpu.reset()`.
+    5. If `$6000 < 0x80`:
+        *   If `0x00`, terminate with exit code `0` (Pass).
+        *   If `> 0x00`, extract the ASCII string starting at `$6004` up to the null terminator, dump it to standard error for developer diagnostics, and terminate with exit code `1` (Fail).
+
+### 9.3 E2E Headless Golden Visual Regression Testing
+To prevent regressions in visual synchronization, background nametable scrolling, sprite rendering pipelines, and scanline cycle timing, the CI pipeline integrates automated End-to-End (E2E) headless screen assertion.
+
+*   **Input Movie Playback**: The headless runner reads controller state logs (in a custom or `.fm2` format) specifying frame-by-frame button triggers. It runs these inputs against games (e.g., *Super Mario Bros.* level 1) or diagnostic visual ROMs (e.g., `scanline.nes`, *240p Test Suite*).
+*   **Frame MD5 Checksum Verification**: At precise frame timestamps (e.g., Frame 60 for main menu, Frame 300 for gameplay start), the runner halts execution, extracts the active RGBA32 `frame_buffer` pixel buffer, and computes a cryptographic MD5 (or SHA-256) hash over the pixel data. This hash is matched against a JSON dictionary of golden references:
+    ```json
+    {
+      "rom": "scanline_test",
+      "frame_assertions": {
+        "120": "8a9c207dfd726912eb3b2a10c1fef029",
+        "600": "cf8e503bfa8917e21bdeca98123abcdf"
+      }
+    }
+    ```
+    If hashes mismatch, a regression has occurred.
+*   **Visual Defect Artifact Generation**: Upon an MD5 mismatch, the headless runner immediately encodes the mismatching frame buffer into a standard PNG screenshot file and saves it to `/test_outputs/failures/[rom_name]_frame_[index].png`. These images are archived in the CI artifacts pipeline. Developers can download these failures to perform overlay pixel comparisons (using visual regression diff tools) to instantly spot horizontal scrolling glitches, sprite line clipping errors, or palette index mismatch defects.
+
+### 9.4 Frame-Accurate Gameplay Recording and Bug Reproduction Specifications
+To solve the classic industry challenge of flaky, hard-to-reproduce emulator glitches (such as scroll desyncs or mid-gameplay rendering glitches), the emulator incorporates a built-in, frame-accurate gameplay input recorder and a native headless reproducer pipeline.
+
+#### 1. Frontend Input Capturer (`static/canvas.js`)
+During gameplay execution inside the browser, the JavaScript animation loop captures active controller bitmask button states on every single frame tick:
+*   **Data Accumulator**: A dynamic `inputHistory` array logs events. If the active controller bitmask changes compared to the previous frame, the frontend appends a frame-accurate entry:
+    `inputHistory.push({ frame: localFrameIndex, mask: currentMask })`
+*   **Interval Compression Algorithm**: To keep log strings ultra-compact for easy copy-pasting in bug reports, the frontend implements an interval-collapsing parser. It iterates over the `inputHistory` array and aggregates adjacent frames sharing the same non-zero mask into a single collapsed range:
+    `[StartFrame]-[EndFrame]:0x[MaskHex]`
+    *   *Example log output*: `401-406:0x8,418-427:0x1` (Start `0x08` held between frames 401-406, and Button A `0x01` held between frames 418-427).
+*   **HUD Export UI**: Clicking the **📋 (btn-export-inputs)** button in the HUD pill overlay runs this parser, extracts the compressed history string, and copies it directly to the user's system clipboard.
+
+#### 2. Native Headless Repro Runner (`src/bin/headless.rs`)
+When a user submits a bug report containing their copy-pasteable input history log, the developer can reproduce the exact frame-by-frame gameplay natively in Rust at maximum execution speed (bypassing any browser/JS layer) to isolate PPU and CPU state:
+*   **Headless Input Mocking**: The headless CLI runner parses the copy-pasted input interval string via the `--inputs` argument, populating a local frame-accurate controller mapping hashtable:
+    `let mut input_map: HashMap<usize, u8> = parse_inputs(inputs_str);`
+*   **Frame Simulation Tick**: During the simulation loop, at the start of every frame index `current_frame`, the runner queries the hashtable and mocks the controller strobe register values:
+    `bus.controller_state = *input_map.get(&current_frame).unwrap_or(&0);`
+*   **Continuous Diagnostics & Visual Dumps**: The runner executes the mocked inputs up to the reported failure frame, and then saves the pristine RGBA32 frame buffer to a target PNG path (`--save output.png`) or exports every single frame sequentially (`--save-dir directory/`) to review visual transitions pixel-by-pixel. This provides a deterministic, 100% reproducible playground to squash bugs instantly.
+
+
