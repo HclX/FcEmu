@@ -23,11 +23,10 @@ KNOWN_DISCREPANCIES = [
     "dmc_dma",                # CPU cycle-stealing during DMC DMA
     "sprite_hit_tests",       # Cycle-accurate PPU Sprite 0 hit evaluation
     "vbl_nmi_timing",         # Advanced PPU vertical blank timing limits
-    "apu_test",               # Advanced APU sub-channel timing limits
-    "4017_timing.nes",        # APU timing limits
-    "4017_written.nes",       # APU reset defaults timing
-    "len_ctrs_enabled.nes",   # APU length counters enable timing
-    "works_immediately.nes",  # APU power writes timing
+    "apu_test/rom_singles/5-len_timing.nes",   # APU length timing limits
+    "apu_test/rom_singles/7-dmc_basics.nes",   # APU DMC basic functions
+    "apu_test/rom_singles/8-dmc_rates.nes",    # APU DMC rate accuracy
+    "apu_test/apu_test.nes",                   # APU multi-test (failing due to singles)
     "apu_mixer/square.nes",   # APU square channel volumes
     "apu_mixer/noise.nes",    # APU noise channel volumes
     "240p",                   # Advanced PPU visual menu stress suite

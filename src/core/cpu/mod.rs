@@ -1618,6 +1618,7 @@ impl Cpu {
 
         let extra_cycles = (self.cycles - start_cycles) as u32;
         self.cycles = start_cycles + cycles as u64 + extra_cycles as u64;
+
         cycles + extra_cycles
     }
 }

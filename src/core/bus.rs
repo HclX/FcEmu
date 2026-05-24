@@ -202,7 +202,7 @@ impl CpuBus for SimpleBus {
                 self.ppu.write_reg(addr, val, &mut ppu_bus);
             }
             0x4000..=0x4013 | 0x4015 | 0x4017 => {
-                self.apu.write_reg(addr, val);
+                self.apu.write_reg_from_cpu(addr, val);
             }
             0x4014 => {
                 let page_addr = (val as u16) << 8;
@@ -250,5 +250,6 @@ impl CpuBus for SimpleBus {
     fn reset(&mut self) {
         self.apu.reset();
         self.ppu.reset();
+        self.apu.tick(7); // CPU reset sequence takes 7 cycles, APU runs during this time
     }
 }
