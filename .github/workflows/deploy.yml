@@ -37,12 +37,7 @@ jobs:
         run: |
           curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Build Static Assets
+      - name: Build WASM Core
         run: |
           chmod +x build_web.sh
           ./build_web.sh
@@ -53,7 +48,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: './dist'
+          path: './static'
 
       - name: Deploy to GitHub Pages
         id: deployment

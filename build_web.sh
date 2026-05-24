@@ -9,47 +9,31 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 echo "====================================================="
-echo "           FcEmu Static Web Build Script             "
+echo "      FcEmu No-Build WASM Compilation Script         "
 echo "====================================================="
 
-# Step 1: Compile the WASM dynamic library using wasm-pack
-echo "Step 1: Compiling WASM core via wasm-pack..."
+# Step 1: Compile the WASM dynamic library using wasm-pack directly into static/pkg
+echo "Step 1: Checking wasm-pack..."
 if ! command -v wasm-pack &> /dev/null; then
   echo "Error: wasm-pack is not installed." >&2
   echo "Please install it from: https://rustwasm.github.io/wasm-pack/installer/" >&2
   exit 1
 fi
-wasm-pack build --target web
 
-# Step 2: Clean the dist/ directory
-echo "Step 2: Cleaning old build outputs (dist/ directory)..."
-rm -rf dist/
+echo "Step 2: Cleaning old WASM package (static/pkg)..."
+rm -rf static/pkg/
 
-# Step 3: Bundle and minify using Vite
-echo "Step 3: Checking Node.js and npm..."
-if ! command -v npm &> /dev/null; then
-  echo "Error: npm (Node Package Manager) is required to run Vite but is not installed." >&2
-  echo "Please install Node.js and npm from https://nodejs.org/" >&2
-  exit 1
-fi
+echo "Step 3: Compiling WASM core directly to static/pkg..."
+wasm-pack build --target web --out-dir static/pkg
 
-echo "Installing package dependencies..."
-npm install
-
-echo "Bundling and minifying web app via Vite..."
-npm run build
-
-# Step 4: Post-build copy hook to unify ROM paths
-echo "Step 4: Copying static public assets to dist/public..."
-mkdir -p dist/public
-if [ -d "static/public" ] && [ "$(ls -A static/public 2>/dev/null)" ]; then
-  cp -r static/public/* dist/public/
-  echo "Copied public assets successfully."
-else
-  echo "No public assets found to copy. Skipping."
+# Step 4: Cleanup legacy directories if they exist (migration helper)
+if [ -d "dist" ] || [ -d "pkg" ]; then
+  echo "Step 4: Cleaning up legacy build directories (dist/ and pkg/)..."
+  rm -rf dist/ pkg/
 fi
 
 echo "====================================================="
-echo " 🎉 FcEmu Web Build Completed successfully!"
-echo " Output assets are located in: ./dist"
+echo " 🎉 FcEmu WASM Compilation Completed successfully!"
+echo " Web assets are ready in: ./static"
+echo " You can now run: python3 server.py"
 echo "====================================================="

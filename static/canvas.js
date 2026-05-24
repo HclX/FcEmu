@@ -1,5 +1,5 @@
 
-import init, { WasmEmulator } from "../pkg/fce_core.js";
+import init, { WasmEmulator } from "./pkg/fce_core.js";
 
 window.onerror = function(message, source, lineno, colno, error) {
     const boundary = document.getElementById('global-error-boundary');
