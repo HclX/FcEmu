@@ -1151,10 +1151,193 @@ function updateReplayUI(active) {
         btnRecordToggle.innerHTML = `
             <svg id="svg-record" xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
                 <circle cx="12" cy="12" r="6" fill="#f7768e" stroke="#f7768e"/>
-            </svg>
-        `;
-    }
+   ## 12. Landscape-Only Dedicated SPA Mobile Architecture Design
+
+This section specifies the design philosophy, responsive layout configurations, high-performance multi-touch lifecycle, and concrete implementation strategies for adding fully native, zero-latency Landscape-Only Mobile Device & Touch Controls to the emulator using a dedicated SPA (Single Page Application) approach.
+
+### 12.1 Mobile UX Philosophy & Dedicated SPA Architecture
+
+Developing an emulator interface for mobile browsers introduces several unique constraints. To avoid complex responsive layouts that pollute the desktop frontend codebase, this architecture strictly decouples mobile support into dedicated, standalone files: `static/mobile.html` and `static/mobile.js`.
+
+#### Dual-File Separation Benefit
+- **Desktop Frontend (`index.html`/`canvas.js`)**: Stays lightweight, containing only desktop keyboard/gamepad listeners, ROM library, and WebRTC Netplay co-op code.
+- **Mobile Frontend (`mobile.html`/`mobile.js`)**: Stays ultra-optimized for hand-held touch controls, purging all keyboard listener overhead and Netplay WebRTC code.
+
+#### 12.1.1 Instant Device Routing Mechanism
+To ensure mobile users are seamlessly routed to the mobile console, a lightweight, high-speed mobile browser redirect script is inserted at the very top of the desktop `static/index.html` head:
+
+```html
+<script>
+  if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+      window.location.replace("mobile.html" + window.location.search);
+  }
+</script>
+```
+This dynamically routes mobile users instantly to `mobile.html` while preserving all active ROM and Netplay query string parameters!
+
+---
+
+### 12.2 Absolute Viewport Locks & Landscape Layout
+
+To feel like a native SPA, the mobile application must prevent erratic scrolling, pinch-to-zoom, and browser-default gesture interruptions.
+
+#### 12.2.1 Standalone Web App Capabilities (`mobile.html`)
+We inject metadata headers to enable standalone iOS/Android web app capabilities:
+```html
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+```
+
+#### 12.2.2 Viewport and Body CSS Locks
+To completely disable default browser elastic scrolling, pinch-zooms, and tap-to-zoom delays, the CSS enforces absolute viewport locks on the body and containers:
+```css
+body, html {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  position: fixed;
+  touch-action: none; /* Suppress standard browser touch interactions */
+  background-color: #000000;
 }
 ```
+
+#### 12.2.3 Landscape Layout Configuration
+The user interface is strictly designed for **Landscape Orientation Only**. The active emulation canvas scales fluidly to 100% height in landscape, preserving its original 4:3 aspect ratio. Controls are overlaid transparently on the left and right margins, mimicking a physical handheld console.
+
+```mermaid
+graph LR
+    subgraph Landscape Layout ["100% Height, Transparent Overlays"]
+        LeftMargin[Left Margin Overlay <br> Virtual D-Pad]
+        CanvasCenter[Emulation Canvas <br> Centered, 4:3, 100% Height]
+        RightMargin[Right Margin Overlay <br> Action Buttons A/B]
+        TopMenu[Top Margin Overlay <br> Collapsible System Menu HUD]
+    end
+```
+
+- **Centered 4:3 Canvas**:
+  ```css
+  #emulator-canvas {
+    display: block;
+    height: 100vh;
+    width: calc(100vh * (4 / 3));
+    max-width: 100vw;
+    margin: 0 auto;
+  }
+  ```
+- **Transparent D-Pad (Left Overlay)**: Positioned on the bottom-left to align perfectly with the left thumb.
+- **Transparent Action Buttons (Right Overlay)**: B and A buttons are arranged in an ergonomic slanted layout on the bottom-right.
+- **Collapsible Top HUD**: A minimized, collapsible top-bar contains Select, Start, Reset, Mute, and Fullscreen options, fading out when not focused to maximize vertical real estate.
+- **ROM Selector Dropdown**: A clean dropdown selector enables quick loading of local or homebrew games.
+
+---
+
+### 12.3 High-Performance Multi-Touch Engine & Zero-Latency Mapping
+
+Standard `click` or `mousedown` events introduce a **300ms click delay** and fail to support multi-touch (holding D-pad while pressing action buttons). The mobile event loop in `mobile.js` implements a highly optimized multi-touch mapping mechanism.
+
+#### 12.3.1 Active Touch Mapping Model
+A global `activeTouchMap` dictionary maps active finger pointers (`touch.identifier`) to target controller bitmasks.
+
+```javascript
+let activeTouchMap = {}; // Map: touch.identifier -> bitmask
+let mobileControllerState = 0;
+```
+
+During the `touchstart`, `touchmove`, and `touchend` event lifecycles, the active touch map is updated. The final controller bitmask sent to the emulator core is computed by performing a bitwise OR operation across all active mapped values.
+
+```javascript
+const commitMobileInputs = () => {
+    let consolidatedMask = 0;
+    for (let id in activeTouchMap) {
+        consolidatedMask |= activeTouchMap[id];
+    }
+    mobileControllerState = consolidatedMask;
+    if (window.emulator) {
+        window.emulator.set_controller_state(mobileControllerState);
+    }
+};
+```
+
+#### 12.3.2 Touch coordinate Sliding & Angular Collision on the D-Pad
+For authentic retro gameplay, players must be able to glide their thumb across D-Pad directions (e.g., moving from `LEFT` to `UP`) without lifting their finger.
+
+To achieve this:
+1. On `touchstart` and `touchmove` events, we calculate the touch coordinates relative to the center of the virtual D-Pad.
+2. We compute the angular direction of the touch relative to the center using the mathematical arctangent formula (`Math.atan2(dy, dx)`).
+3. We map the calculated angle $\theta$ to one of the 8 target directions (including diagonals).
+
+```javascript
+const handleDpadTouch = (touch) => {
+    const dpadRect = virtualDpad.getBoundingClientRect();
+    const centerX = dpadRect.left + dpadRect.width / 2;
+    const centerY = dpadRect.top + dpadRect.height / 2;
+    const dx = touch.clientX - centerX;
+    const dy = touch.clientY - centerY;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    const maxRadius = dpadRect.width / 2;
+
+    // Deadzone threshold (ignore center 15% to avoid accidental triggers)
+    if (distance < maxRadius * 0.15) {
+        activeTouchMap[touch.identifier] = 0;
+        return;
+    }
+
+    // Convert to degrees
+    let angle = Math.atan2(dy, dx) * (180 / Math.PI);
+    let activeVectorMask = 0;
+
+    // Map 45-degree sectors to NES controller bitmasks
+    if (angle >= -22.5 && angle < 22.5) {
+        activeVectorMask = NES_BUTTON_RIGHT;
+    } else if (angle >= 22.5 && angle < 67.5) {
+        activeVectorMask = NES_BUTTON_DOWN | NES_BUTTON_RIGHT; // Diagonal Down-Right
+    } else if (angle >= 67.5 && angle < 112.5) {
+        activeVectorMask = NES_BUTTON_DOWN;
+    } else if (angle >= 112.5 && angle < 157.5) {
+        activeVectorMask = NES_BUTTON_DOWN | NES_BUTTON_LEFT;  // Diagonal Down-Left
+    } else if (angle >= 157.5 || angle < -157.5) {
+        activeVectorMask = NES_BUTTON_LEFT;
+    } else if (angle >= -157.5 && angle < -112.5) {
+        activeVectorMask = NES_BUTTON_UP | NES_BUTTON_LEFT;    // Diagonal Up-Left
+    } else if (angle >= -112.5 && angle < -67.5) {
+        activeVectorMask = NES_BUTTON_UP;
+    } else if (angle >= -67.5 && angle < -22.5) {
+        activeVectorMask = NES_BUTTON_UP | NES_BUTTON_RIGHT;   // Diagonal Up-Right
+    }
+
+    activeTouchMap[touch.identifier] = activeVectorMask;
+};
+```
+
+#### 12.3.3 Haptic / Vibrational Feedback
+To compensate for the lack of physical boundaries on flat screens, a short **10ms vibration pulse** is triggered via `navigator.vibrate(10)` whenever a button or D-pad segment is activated:
+```javascript
+const triggerHaptic = () => {
+    if (navigator.vibrate) {
+        navigator.vibrate(10);
+    }
+};
+```
+
+#### 12.3.4 Dynamic Landscape Screen Lock
+To guarantee landscape alignment, the screen orientation lock API is invoked upon the very first touch gesture:
+```javascript
+const requestLandscapeLock = () => {
+    if (screen.orientation && screen.orientation.lock) {
+        screen.orientation.lock("landscape").catch(err => {
+            console.warn("Screen orientation lock not supported or rejected:", err.message);
+        });
+    }
+};
+```
+obileDevice) {
+        initMobileControls();
+    }
+});
+```
+
 
 
