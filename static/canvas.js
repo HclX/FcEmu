@@ -24,6 +24,8 @@ let inputHistory = [];
 let emulator = null;
 let wasm_exports = null;
 let audioCtx = null;
+let gainNode = null;
+let isMuted = false;
 let nextPlayTime = 0;
 let isRunning = false;
 
@@ -48,7 +50,8 @@ let isHost = false;
 let netplayBlockStartTime = null;
 const DEFAULT_ROMS = {
     "novathesquirrel": { name: "Nova the Squirrel (Platformer)", path: "./public/roms/novathesquirrel.nes" },
-    "flappybird": { name: "Flappy Bird (Arcade)", path: "./public/roms/flappy-bird.nes" }
+    "flappybird": { name: "Flappy Bird (Arcade)", path: "./public/roms/flappy-bird.nes" },
+    "lizard": { name: "Lizard (Adventure Demo)", path: "./public/roms/lizard_demo.nes" }
 };
 let userRomsCache = {}; // Cache user ROM ArrayBuffers by Hash key
 
@@ -69,6 +72,9 @@ const bootOverlay = document.getElementById("boot-overlay");
 const bootBtn = document.getElementById("boot-btn");
 const dropZone = document.getElementById("drop-zone");
 const fileInput = document.getElementById("file-input");
+const pausedOverlay = document.getElementById("paused-overlay");
+const btnResume = document.getElementById("btn-resume");
+const btnMute = document.getElementById("btn-mute");
 
 // IndexedDB Helpers
 const DB_NAME = "FcEmuDB";
@@ -254,8 +260,8 @@ const DEFAULT_KEY_BINDINGS = {
     "DOWN": "ArrowDown",
     "LEFT": "ArrowLeft",
     "RIGHT": "ArrowRight",
-    "A": "KeyZ",
-    "B": "KeyX",
+    "A": "ControlLeft",
+    "B": "AltLeft",
     "SELECT": "Space",
     "START": "Enter"
 };
@@ -314,6 +320,21 @@ window.addEventListener("keydown", (event) => {
         const targetButton = activeConfigButton.dataset.button;
         const newCode = event.code;
 
+        // ESC Key acts as CANCEL mapping when listening!
+        if (newCode === "Escape") {
+            activeConfigButton.classList.remove("listening");
+            const oldBtn = activeConfigButton.dataset.button;
+            const code = tempKeyBindings[oldBtn];
+            activeConfigButton.querySelector(".kbd").textContent = code ? formatKeyName(code) : "Unmapped";
+            if (!code) {
+                activeConfigButton.querySelector(".kbd").classList.add("unmapped");
+            } else {
+                activeConfigButton.querySelector(".kbd").classList.remove("unmapped");
+            }
+            activeConfigButton = null;
+            return;
+        }
+
         // Search tempKeyBindings for duplicates of the new key code.
         for (const button in tempKeyBindings) {
             if (tempKeyBindings[button] === newCode && button !== targetButton) {
@@ -335,7 +356,9 @@ window.addEventListener("keydown", (event) => {
     }
 
     if (KEY_MAP[event.code] !== undefined) {
-        controllerState |= KEY_MAP[event.code];
+        if (isRunning) {
+            controllerState |= KEY_MAP[event.code];
+        }
         event.preventDefault();
     }
     if (event.code === "F5") {
@@ -345,6 +368,47 @@ window.addEventListener("keydown", (event) => {
     if (event.code === "F9") {
         event.preventDefault();
         loadState();
+    }
+    if (event.code === "Escape") {
+        // Check if key config modal is open
+        const keyConfig = document.getElementById("key-config-modal");
+        if (keyConfig && keyConfig.style.display === "flex") {
+            event.preventDefault();
+            closeModal();
+            return;
+        }
+        
+        // Check if other modals are open to close them on ESC
+        const library = document.getElementById("rom-library-modal");
+        const multiplayer = document.getElementById("multiplayer-modal");
+        if (library && library.style.display === "flex") {
+            event.preventDefault();
+            library.style.display = "none";
+            return;
+        }
+        if (multiplayer && multiplayer.style.display === "flex") {
+            event.preventDefault();
+            multiplayer.style.display = "none";
+            return;
+        }
+
+        // Only toggle pause if no modals are open
+        if (bootOverlay && bootOverlay.classList.contains("hidden")) {
+            togglePause();
+        }
+    }
+    if (event.code === "Enter") {
+        const library = document.getElementById("rom-library-modal");
+        const multiplayer = document.getElementById("multiplayer-modal");
+        const keyConfig = document.getElementById("key-config-modal");
+        const modalOpen = (library && library.style.display === "flex") ||
+                          (multiplayer && multiplayer.style.display === "flex") ||
+                          (keyConfig && keyConfig.style.display === "flex");
+        
+        if (!isRunning && !modalOpen && bootOverlay && bootOverlay.classList.contains("hidden")) {
+            event.preventDefault();
+            togglePause();
+        }
     }
 });
 
@@ -557,6 +621,9 @@ async function startAudioAndCore() {
     try {
         if (!audioCtx) {
             audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 44100 });
+            gainNode = audioCtx.createGain();
+            gainNode.connect(audioCtx.destination);
+            gainNode.gain.setValueAtTime(isMuted ? 0 : 1, audioCtx.currentTime);
             nextPlayTime = audioCtx.currentTime;
         }
         if (audioCtx.state === "suspended") {
@@ -718,7 +785,7 @@ function loop() {
             // Create short play node
             const source = audioCtx.createBufferSource();
             source.buffer = audioBuffer;
-            source.connect(audioCtx.destination);
+            source.connect(gainNode);
 
             const duration = sampleLen / 44100;
             let playTime = nextPlayTime;
@@ -1137,6 +1204,10 @@ if (btnLoadRom) {
                     console.log(`[FcEmu] Loading user ROM "${cached.name}" from local IndexedDB cache...`);
                     await handleROMBuffer(cached.data.slice(0), cached.name);
                 }
+            }
+            // Dismiss modal on successful load
+            if (romLibraryModal) {
+                romLibraryModal.style.display = "none";
             }
         } catch (err) {
             console.error("[FcEmu] ROM loading failed:", err);
@@ -1908,3 +1979,86 @@ initWasm().then(async () => {
         }
     }
 });
+
+// Pause/Resume logic on canvas click
+function togglePause() {
+    if (!emulator || !currentRomHash) return;
+
+    if (isRunning) {
+        isRunning = false;
+        if (pausedOverlay) {
+            pausedOverlay.classList.remove("hidden");
+        }
+        if (audioCtx && audioCtx.state === "running") {
+            audioCtx.suspend();
+        }
+    } else {
+        isRunning = true;
+        if (pausedOverlay) {
+            pausedOverlay.classList.add("hidden");
+        }
+        if (audioCtx && audioCtx.state === "suspended") {
+            audioCtx.resume();
+        }
+        requestAnimationFrame(loop);
+    }
+}
+
+if (canvas) {
+    canvas.addEventListener("click", () => {
+        if (bootOverlay && !bootOverlay.classList.contains("hidden")) return;
+        // Only allow pausing via canvas click (resuming must be done via the Resume button)
+        if (isRunning) {
+            togglePause();
+        }
+    });
+}
+
+if (btnResume) {
+    btnResume.addEventListener("click", (e) => {
+        e.stopPropagation();
+        togglePause();
+    });
+}
+
+// Muting logic
+function toggleMute() {
+    isMuted = !isMuted;
+    if (gainNode && audioCtx) {
+        gainNode.gain.setValueAtTime(isMuted ? 0 : 1, audioCtx.currentTime);
+    }
+    updateMuteButtonUI();
+}
+
+function updateMuteButtonUI() {
+    if (!btnMute) return;
+    if (isMuted) {
+        btnMute.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                <line x1="23" y1="9" x2="17" y2="15"/>
+                <line x1="17" y1="9" x2="23" y2="15"/>
+            </svg>
+        `;
+        btnMute.title = "Unmute Audio";
+        btnMute.style.color = "#f7768e";
+        btnMute.style.borderColor = "rgba(247, 118, 142, 0.3)";
+    } else {
+        btnMute.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/>
+            </svg>
+        `;
+        btnMute.title = "Mute Audio";
+        btnMute.style.color = "rgba(255, 255, 255, 0.85)";
+        btnMute.style.borderColor = "rgba(255, 255, 255, 0.18)";
+    }
+}
+
+if (btnMute) {
+    btnMute.addEventListener("click", (e) => {
+        e.stopPropagation();
+        toggleMute();
+    });
+}

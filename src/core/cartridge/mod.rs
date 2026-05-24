@@ -1,7 +1,7 @@
 pub mod mapper;
 
 use super::bus::MirroringMode;
-use mapper::{Mapper, Mapper0, Mapper1, Mapper2, Mapper227, Mapper30};
+use mapper::{Mapper, Mapper0, Mapper1, Mapper2, Mapper227, Mapper30, Mapper34};
 
 pub struct Cartridge {
     pub prg_rom: Vec<u8>,
@@ -76,6 +76,7 @@ impl Cartridge {
             1 => Box::new(Mapper1::new(prg_banks, chr_banks)),
             2 => Box::new(Mapper2::new(prg_banks, chr_banks)),
             30 => Box::new(Mapper30::new(prg_banks, chr_banks, mirroring)),
+            34 => Box::new(Mapper34::new(prg_banks, chr_banks)),
             227 => Box::new(Mapper227::new(prg_banks, chr_banks)),
             _ => return Err(format!("Unsupported mapper: {}", mapper_id)),
         };

@@ -642,6 +642,57 @@ mod tests {
             .expect("Failed to parse flappy-bird.nes");
         assert_eq!(flappy_cart.mapper_id, 0);
     }
+
+    #[test]
+    fn test_mapper34_bnrom() {
+        let mut mapper = Mapper34::new(32, 0); // 512KB PRG, CHR RAM (BNROM)
+        assert!(!mapper.is_nina);
+
+        // CPU read/write
+        // Default bank 0
+        assert_eq!(mapper.map_cpu_read(0x8000), Some(0));
+        assert_eq!(mapper.map_cpu_read(0xFFFF), Some(0x7FFF));
+
+        // Write bank 5
+        mapper.map_cpu_write(0x8000, 5);
+        assert_eq!(mapper.prg_bank, 5);
+        // 32KB bank 5 = offset 5 * 32768 = 163840
+        assert_eq!(mapper.map_cpu_read(0x8000), Some(5 * 32768));
+        assert_eq!(mapper.map_cpu_read(0xFFFF), Some(5 * 32768 + 0x7FFF));
+
+        // PPU read/write (unbanked 8KB CHR-RAM)
+        assert_eq!(mapper.map_ppu_read(0x0000), Some(0));
+        assert_eq!(mapper.map_ppu_read(0x1FFF), Some(0x1FFF));
+    }
+
+    #[test]
+    fn test_mapper34_nina() {
+        let mut mapper = Mapper34::new(4, 2); // 64KB PRG, 16KB CHR-ROM (NINA-001)
+        assert!(mapper.is_nina);
+
+        // CPU read/write
+        // Default bank 0
+        assert_eq!(mapper.map_cpu_read(0x8000), Some(0));
+        
+        // Write PRG bank 1 to $7FFD
+        mapper.map_cpu_write(0x7FFD, 1);
+        assert_eq!(mapper.prg_bank, 1);
+        assert_eq!(mapper.map_cpu_read(0x8000), Some(1 * 32768));
+
+        // PPU CHR banking
+        // Write CHR bank 2 to $7FFE (low 4KB)
+        mapper.map_cpu_write(0x7FFE, 2);
+        assert_eq!(mapper.chr_bank_0, 2);
+        // Write CHR bank 3 to $7FFF (high 4KB)
+        mapper.map_cpu_write(0x7FFF, 3);
+        assert_eq!(mapper.chr_bank_1, 3);
+
+        // PPU reads: CHR banks are 4KB, but self.chr_banks is in 8KB units (so 2 CHR banks of 8KB = 4 banks of 4KB)
+        // Bank 2 offset = 2 * 4096 = 8192
+        assert_eq!(mapper.map_ppu_read(0x0000), Some(2 * 4096));
+        // Bank 3 offset = 3 * 4096 = 12288
+        assert_eq!(mapper.map_ppu_read(0x1000), Some(3 * 4096));
+    }
 }
 
 /// Mapper30 (UNROM 512) mapping logic.
@@ -738,6 +789,127 @@ impl Mapper for Mapper30 {
             self.prg_bank = state[0];
             self.chr_bank = state[1];
             self.mirroring_select = state[2];
+        }
+    }
+}
+
+/// Mapper34 (BNROM / NINA-001) mapping logic.
+pub struct Mapper34 {
+    prg_banks: u8, // in 16KB units
+    chr_banks: u8, // in 8KB units
+    pub is_nina: bool, // public for testing
+    pub prg_bank: u8,  // public for testing
+    pub chr_bank_0: u8, // public for testing
+    pub chr_bank_1: u8, // public for testing
+}
+
+impl Mapper34 {
+    pub fn new(prg_banks: u8, chr_banks: u8) -> Self {
+        let is_nina = chr_banks > 0;
+        Self {
+            prg_banks,
+            chr_banks,
+            is_nina,
+            prg_bank: 0,
+            chr_bank_0: 0,
+            chr_bank_1: 1,
+        }
+    }
+}
+
+impl Mapper for Mapper34 {
+    fn map_cpu_read(&self, addr: u16) -> Option<usize> {
+        match addr {
+            0x6000..=0x7FFF => {
+                Some((addr - 0x6000) as usize)
+            }
+            0x8000..=0xFFFF => {
+                let total_32k_banks = (self.prg_banks as usize) / 2;
+                let bank = if total_32k_banks > 0 {
+                    self.prg_bank as usize % total_32k_banks
+                } else {
+                    0
+                };
+                Some(bank * 32768 + (addr as usize - 0x8000))
+            }
+            _ => None,
+        }
+    }
+
+    fn map_cpu_write(&mut self, addr: u16, val: u8) -> Option<usize> {
+        if self.is_nina {
+            match addr {
+                0x7FFD => {
+                    self.prg_bank = val & 0x0F;
+                    None
+                }
+                0x7FFE => {
+                    self.chr_bank_0 = val & 0x0F;
+                    None
+                }
+                0x7FFF => {
+                    self.chr_bank_1 = val & 0x0F;
+                    None
+                }
+                0x6000..=0x7FFC => {
+                    Some((addr - 0x6000) as usize)
+                }
+                _ => None,
+            }
+        } else {
+            match addr {
+                0x6000..=0x7FFF => {
+                    Some((addr - 0x6000) as usize)
+                }
+                0x8000..=0xFFFF => {
+                    self.prg_bank = val & 0x0F;
+                    None
+                }
+                _ => None,
+            }
+        }
+    }
+
+    fn map_ppu_read(&self, addr: u16) -> Option<usize> {
+        if addr < 0x2000 {
+            if self.is_nina {
+                let chr_banks_4kb = (self.chr_banks as usize) * 2;
+                if addr < 0x1000 {
+                    let bank = if chr_banks_4kb > 0 {
+                        self.chr_bank_0 as usize % chr_banks_4kb
+                    } else {
+                        0
+                    };
+                    Some(bank * 4096 + (addr & 0x0FFF) as usize)
+                } else {
+                    let bank = if chr_banks_4kb > 0 {
+                        self.chr_bank_1 as usize % chr_banks_4kb
+                    } else {
+                        0
+                    };
+                    Some(bank * 4096 + (addr & 0x0FFF) as usize)
+                }
+            } else {
+                Some(addr as usize)
+            }
+        } else {
+            None
+        }
+    }
+
+    fn map_ppu_write(&mut self, addr: u16, _val: u8) -> Option<usize> {
+        self.map_ppu_read(addr)
+    }
+
+    fn save_state(&self) -> Vec<u8> {
+        vec![self.prg_bank, self.chr_bank_0, self.chr_bank_1]
+    }
+
+    fn load_state(&mut self, state: &[u8]) {
+        if state.len() >= 3 {
+            self.prg_bank = state[0];
+            self.chr_bank_0 = state[1];
+            self.chr_bank_1 = state[2];
         }
     }
 }
