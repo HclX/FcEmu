@@ -671,3 +671,490 @@ The definitive proof of the design's success is verifying that the Flappy Bird N
 *   **Test Script**: `tests/verify_flappy_pal.py`
 *   **Methodology**: Runs Flappy Bird in PAL mode for exactly **451 frames** using the recorded input sequence. It captures the screen frame buffer at frame 451, computes its MD5 checksum, and asserts that it matches the **glitch-free golden reference** (pristine top sky and clean brown dirt at the bottom), proving the spillover is eliminated.
 
+
+## 11. Input Recording & Playback Replay Architecture Design
+
+This section specifies the architectural design for the **Gameplay Input Recording & Playback Replay** feature, enabling users to record their gameplay frame-by-frame, export it as a highly-optimized lightweight `.fcr` (FcEmu Capture & Replay) file, and replay it with perfect mathematical determinism.
+
+### 11.1 The Deterministic Emulation Philosophy
+
+Unlike raw video capturing (e.g., MP4, WebM) which requires megabytes of data per second and heavy CPU/GPU encoding overhead, `fce_core` is a **100% deterministic state machine**. Given the exact same initial state (either power-on reset or a specific savestate snapshot) and the exact same button inputs injected at the exact same clock cycles/frames, the emulator will produce the identical visual and audio output every single time.
+
+#### File Size Efficiency Analysis
+
+By leveraging deterministic input logging, we achieve extreme space savings:
+*   **Raw Video (WebM/MP4 720p @ 60fps)**: ~15MB to 50MB per minute.
+*   **Raw Input Log (Full frame dump)**: 60 frames/sec * 2 bytes (Player 1 + Player 2 masks) = 120 bytes/sec = ~7.2KB per minute.
+*   **Delta-Compressed Input Log (Only recording state changes)**: Since inputs only change when a player presses or releases a button, we only record on frames where the input mask differs from the previous frame. For typical gameplay, this reduces the data to ~5-20 changes per minute.
+    *   *Space consumption*: ~100 bytes per minute.
+    *   *Comparison*: A 2-hour gameplay session takes **less than 50KB** in `.fcr` format, compared to **3GB+** in standard raw video formats (a **99.998% reduction** in storage/bandwidth!).
+
+### 11.2 The `.fcr` (FcEmu Capture & Replay) File Format Specification
+
+The `.fcr` file is a structured JSON document containing metadata, initial state, and delta-compressed input logs.
+
+#### JSON Schema
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "FcEmuCaptureReplay",
+  "type": "object",
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "romName": { "type": "string", "description": "Human-readable name of the ROM." },
+        "romHash": { "type": "string", "pattern": "^[a-fA-F0-9]{64}$", "description": "SHA-256 cryptographic hash of the ROM file." },
+        "emulatorVersion": { "type": "string", "description": "Version of the FcEmu core used during recording." },
+        "region": { "type": "string", "enum": ["ntsc", "pal"], "description": "Emulation region timing (NTSC at 60Hz or PAL at 50Hz)." },
+        "timestamp": { "type": "integer", "description": "Unix epoch timestamp of the recording creation." },
+        "totalFrames": { "type": "integer", "description": "Total frame count of the gameplay session." }
+      },
+      "required": ["romName", "romHash", "emulatorVersion", "region", "timestamp", "totalFrames"]
+    },
+    "initialState": {
+      "type": ["string", "null"],
+      "description": "Base64-encoded binary save state. Null if recorded from power-on/hard-reset, or a serialized WASM state if recorded mid-game."
+    },
+    "inputs": {
+      "type": "array",
+      "description": "Delta-compressed list of input changes. Each entry is a tuple: [frameIndex, player1Mask, player2Mask].",
+      "items": {
+        "type": "array",
+        "minItems": 3,
+        "maxItems": 3,
+        "items": {
+          "type": "integer"
+        }
+      }
+    }
+  },
+  "required": ["metadata", "initialState", "inputs"]
+}
+```
+
+### 11.3 State Machine & Flowcharts
+
+The recording and playback modes are governed by two mutually exclusive sub-state machines operating inside the main emulation loop.
+
+#### Recording Flow
+
+```mermaid
+stateDiagram-v2
+    [*] --> Idle : ROM Loaded
+    Idle --> Recording_Init : Click `#btn-record-toggle` (Start)
+    Recording_Init --> Recording_Loop : Capture savestate (if mid-game) & reset log
+    state Recording_Loop {
+        [*] --> PollInput
+        PollInput --> CheckChange : Compare current masks with last recorded masks
+        CheckChange --> SaveDelta : Masks Changed
+        CheckChange --> FrameTick : No Change
+        SaveDelta --> FrameTick : Push `[frame, p1, p2]` to log
+        FrameTick --> PollInput : Step Frame & `localFrameIndex++`
+    }
+    Recording_Loop --> CompileFCR : Click `#btn-record-toggle` (Stop)
+    CompileFCR --> DownloadFile : Assemble JSON & Trigger Browser Download
+    DownloadFile --> Idle
+```
+
+#### Replay Flow
+
+```mermaid
+stateDiagram-v2
+    [*] --> Idle
+    Idle --> ParseFCR : User uploads `.fcr` via `#btn-load-replay`
+    ParseFCR --> ValidateROM : Verify SHA-256 hash against loaded ROM
+    ValidateROM --> AlertMismatch : Hashes Mismatch (Error)
+    AlertMismatch --> Idle
+    ValidateROM --> LoadState : Hashes Match
+    LoadState --> ConfigureRegion : Restore `initialState` (or Reset if Null)
+    ConfigureRegion --> Playback_Loop : Force Region Timing (NTSC/PAL)
+    state Playback_Loop {
+        [*] --> ReadFrameInputs
+        ReadFrameInputs --> ApplyInputs : Check `replayInputs` Map for current frame
+        ApplyInputs --> StepFrame : Apply masks to core
+        StepFrame --> FrameTick : `localFrameIndex++`
+        FrameTick --> ReadFrameInputs : Next Frame
+    }
+    Playback_Loop --> StopPlayback : Replay Finished or User Clicks Stop
+    StopPlayback --> RestoreControls : Restore normal physical keyboard/gamepad polling
+    RestoreControls --> Idle
+```
+
+### 11.4 Frontend Event Loop Integration Details
+
+To integrate recording and replaying without breaking the WebRTC Netplay lockstep or standard local execution, the main animation loop in `static/canvas.js` is modified to support intercepting controller inputs.
+
+#### 1. Recording Logic Implementation
+
+```javascript
+// Global state additions
+let isRecording = false;
+let recordInputs = [];
+let recordingInitialState = null;
+let lastRecordedP1Mask = 0;
+let lastRecordedP2Mask = 0;
+
+function startRecording() {
+    if (!emulator || !currentRomHash) return;
+    isRecording = true;
+    recordInputs = [];
+    lastRecordedP1Mask = 0;
+    lastRecordedP2Mask = 0;
+    
+    // Capture initial state if not at frame 0
+    if (localFrameIndex > 0) {
+        const stateBytes = emulator.save_state();
+        recordingInitialState = btoa(String.fromCharCode.apply(null, stateBytes));
+    } else {
+        recordingInitialState = null;
+    }
+    
+    updateRecordButtonUI(true);
+    console.log(`[FcEmu] Recording started at frame ${localFrameIndex}`);
+}
+
+function stopRecording() {
+    if (!isRecording) return;
+    isRecording = false;
+    updateRecordButtonUI(false);
+    
+    // Compile FCR object
+    const fcrData = {
+        metadata: {
+            romName: currentRomName,
+            romHash: currentRomHash,
+            emulatorVersion: "3.0-Hybrid",
+            region: emulator.get_region() === 0 ? "ntsc" : "pal",
+            timestamp: Date.now(),
+            totalFrames: localFrameIndex
+        },
+        initialState: recordingInitialState,
+        inputs: recordInputs
+    };
+    
+    // Trigger file download
+    const blob = new Blob([JSON.stringify(fcrData, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${currentRomName.replace(/\s+/g, "_")}_replay.fcr`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    
+    console.log(`[FcEmu] Recording stopped. Exported ${recordInputs.length} input deltas.`);
+}
+```
+
+#### 2. Replay Engine & Fast-Forward Loop Implementation
+
+To support fast-forwarding, we execute the frame ticks multiple times per single animation frame. We also skip audio processing during high-speed execution to prevent buffer underflows/screeching.
+
+```javascript
+let isReplaying = false;
+let replayInputs = new Map(); // Map of frameIndex -> [p1Mask, p2Mask]
+let maxReplayFrame = 0;
+let activeReplayP1Mask = 0;
+let activeReplayP2Mask = 0;
+let playbackSpeed = 1; // 1 (1x), 2 (2x), 4 (4x), 8 (8x)
+
+async function loadReplayFile(file) {
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+        try {
+            const fcr = JSON.parse(e.target.result);
+            
+            // 1. Validate ROM Hash
+            if (fcr.metadata.romHash !== currentRomHash) {
+                if (!confirm(`Warning: The loaded replay was recorded on a different ROM (${fcr.metadata.romName}). Attempt playback anyway?`)) {
+                    return;
+                }
+            }
+            
+            // 2. Restore Initial State
+            if (fcr.initialState) {
+                const binaryString = atob(fcr.initialState);
+                const len = binaryString.length;
+                const bytes = new Uint8Array(len);
+                for (let i = 0; i < len; i++) {
+                    bytes[i] = binaryString.charCodeAt(i);
+                }
+                emulator.load_state(bytes);
+            } else {
+                emulator.reset();
+            }
+            
+            // 3. Align Timing/Region
+            const targetRegion = fcr.metadata.region === "pal" ? 1 : 0;
+            emulator.set_region(targetRegion);
+            const regionSelect = document.getElementById("region-select");
+            if (regionSelect) regionSelect.value = fcr.metadata.region;
+            
+            // 4. Populate Replay Map
+            replayInputs.clear();
+            fcr.inputs.forEach(([frame, p1, p2]) => {
+                replayInputs.set(frame, [p1, p2]);
+            });
+            
+            isReplaying = true;
+            maxReplayFrame = fcr.metadata.totalFrames;
+            localFrameIndex = fcr.initialState ? fcr.inputs[0]?.[0] || 0 : 0;
+            activeReplayP1Mask = 0;
+            activeReplayP2Mask = 0;
+            playbackSpeed = 1;
+            
+            updateReplayUI(true);
+            console.log(`[FcEmu] Replay loaded. ${fcr.inputs.length} deltas. Ready to play.`);
+            
+            if (!isRunning) {
+                isRunning = true;
+                requestAnimationFrame(loop);
+            }
+        } catch (err) {
+            alert(`Failed to parse .fcr replay file: ${err.message}`);
+        }
+    };
+    reader.readAsText(file);
+}
+```
+
+#### 3. Integration inside `loop()`
+
+```javascript
+function loop() {
+    if (!isRunning) return;
+    
+    const steps = isReplaying ? playbackSpeed : 1;
+    
+    for (let step = 0; step < steps; step++) {
+        if (isReplaying) {
+            // REPLAY MODE: Bypass keyboard polling, feed from replay inputs
+            if (replayInputs.has(localFrameIndex)) {
+                const [p1, p2] = replayInputs.get(localFrameIndex);
+                activeReplayP1Mask = p1;
+                activeReplayP2Mask = p2;
+            }
+            emulator.write_controller(activeReplayP1Mask);
+            emulator.write_controller2(activeReplayP2Mask);
+            
+            // End of replay auto-stop
+            if (localFrameIndex >= maxReplayFrame) {
+                isReplaying = false;
+                updateReplayUI(false);
+                console.log("[FcEmu] Replay finished. Switched back to normal execution.");
+                break;
+            }
+        } else {
+            // NORMAL MODE: Poll gamepads & keyboards
+            pollGamepads();
+            const currentP1Mask = controllerState | window.controllerState;
+            const currentP2Mask = window.controller2State;
+            
+            emulator.write_controller(currentP1Mask);
+            emulator.write_controller2(currentP2Mask);
+            
+            // RECORD MODE: Intercept and save delta-compressed changes
+            if (isRecording) {
+                if (currentP1Mask !== lastRecordedP1Mask || currentP2Mask !== lastRecordedP2Mask) {
+                    recordInputs.push([localFrameIndex, currentP1Mask, currentP2Mask]);
+                    lastRecordedP1Mask = currentP1Mask;
+                    lastRecordedP2Mask = currentP2Mask;
+                }
+            }
+        }
+        
+        emulator.step_frame();
+        localFrameIndex++;
+    }
+    
+    // Step 3: Visual Output (rendered once per animation loop)
+    const framePtr = emulator.frame_buffer_ptr();
+    const rgbaBuffer = new Uint8ClampedArray(wasm_exports.memory.buffer, framePtr, 256 * 240 * 4);
+    const frameImgData = new ImageData(rgbaBuffer, 256, 240);
+    ctx.putImageData(frameImgData, 0, 0);
+    
+    // Step 4: Audio scheduling
+    if (audioCtx && audioCtx.state !== "suspended") {
+        if (isReplaying && playbackSpeed > 1) {
+            // Mute audio during fast-forward to prevent buffer overrun/high-pitched screeching
+            emulator.clear_sample_buffer();
+        } else {
+            const samplePtr = emulator.sample_buffer_ptr();
+            const sampleLen = emulator.sample_buffer_len();
+            if (sampleLen > 0) {
+                const sampleBuffer = new Float32Array(wasm_exports.memory.buffer, samplePtr, sampleLen);
+                const audioBuffer = audioCtx.createBuffer(1, sampleLen, 44100);
+                audioBuffer.getChannelData(0).set(sampleBuffer);
+                
+                const source = audioCtx.createBufferSource();
+                source.buffer = audioBuffer;
+                source.connect(gainNode);
+                
+                const duration = sampleLen / 44100;
+                let playTime = nextPlayTime;
+                if (playTime < audioCtx.currentTime) {
+                    playTime = audioCtx.currentTime + 0.05;
+                }
+                if (playTime - audioCtx.currentTime > 0.1) {
+                    playTime = audioCtx.currentTime + 0.02;
+                }
+                source.start(playTime);
+                nextPlayTime = playTime + duration;
+                emulator.clear_sample_buffer();
+            }
+        }
+    }
+    
+    requestAnimationFrame(loop);
+}
+```
+
+### 11.5 UI & Controls Layout Additions
+
+We incorporate three interactive circular button items in the floating HUD pill control overlay bar (`#emulator-hud` inside `static/index.html`) to trigger recording, replay uploads, and fast-forward states.
+
+#### HUD HTML Additions
+
+```html
+<!-- Floating HUD Control Overlay Bar Extensions -->
+<div id="emulator-hud" class="hud-bar">
+    <!-- Existing HUD items ... -->
+    
+    <div class="hud-separator"></div>
+
+    <!-- Record Gameplay Start/Stop Toggle -->
+    <button id="btn-record-toggle" class="hud-btn-circular" title="Start Input Recording (🔴)">
+        <svg id="svg-record" xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <!-- Red Dot for Record -->
+            <circle cx="12" cy="12" r="6" fill="#f7768e" stroke="#f7768e"/>
+        </svg>
+    </button>
+
+    <!-- Load .fcr Replay File -->
+    <button id="btn-load-replay" class="hud-btn-circular" title="Load Gameplay Replay (.fcr)">
+        <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="5 3 19 12 5 21 5 3"/>
+            <line x1="19" y1="5" x2="19" y2="19"/>
+        </svg>
+    </button>
+
+    <!-- Hidden file selector for loading replay -->
+    <input type="file" id="replay-file-input" accept=".fcr" style="display: none;">
+
+    <!-- Replay Speed Toggle (Only visible during active replaying!) -->
+    <button id="btn-replay-speed" class="hud-btn" style="display: none; font-family: monospace; font-size: 0.75rem; padding: 2px 8px;" title="Replay Speed (Fast Forward)">
+        1.0x ⏩
+    </button>
+</div>
+```
+
+#### UI Controller Integration (`static/canvas.js`)
+
+```javascript
+const btnRecordToggle = document.getElementById("btn-record-toggle");
+const btnLoadReplay = document.getElementById("btn-load-replay");
+const replayFileInput = document.getElementById("replay-file-input");
+const btnReplaySpeed = document.getElementById("btn-replay-speed");
+
+if (btnRecordToggle) {
+    btnRecordToggle.addEventListener("click", () => {
+        if (isReplaying) {
+            // Stop active replay first if replaying
+            isReplaying = false;
+            updateReplayUI(false);
+            return;
+        }
+        if (isRecording) {
+            stopRecording();
+        } else {
+            startRecording();
+        }
+    });
+}
+
+if (btnLoadReplay && replayFileInput) {
+    btnLoadReplay.addEventListener("click", () => {
+        replayFileInput.click();
+    });
+    
+    replayFileInput.addEventListener("change", (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            loadReplayFile(file);
+        }
+    });
+}
+
+if (btnReplaySpeed) {
+    btnReplaySpeed.addEventListener("click", () => {
+        if (!isReplaying) return;
+        
+        // Cycle speed: 1x -> 2x -> 4x -> 8x -> 1x
+        if (playbackSpeed === 1) {
+            playbackSpeed = 2;
+        } else if (playbackSpeed === 2) {
+            playbackSpeed = 4;
+        } else if (playbackSpeed === 4) {
+            playbackSpeed = 8;
+        } else {
+            playbackSpeed = 1;
+        }
+        
+        btnReplaySpeed.textContent = `${playbackSpeed}.0x ⏩`;
+    });
+}
+
+function updateRecordButtonUI(active) {
+    const svg = document.getElementById("svg-record");
+    if (!svg) return;
+    
+    if (active) {
+        btnRecordToggle.title = "Stop Input Recording";
+        btnRecordToggle.style.borderColor = "#f7768e";
+        // Change circle dot to a flashing square stop icon
+        svg.innerHTML = `
+            <rect x="6" y="6" width="12" height="12" fill="#f7768e" stroke="#f7768e"/>
+            <style>
+                @keyframes flash { 0% { opacity: 0.3; } 100% { opacity: 1.0; } }
+                #svg-record { animation: flash 0.8s infinite alternate; }
+            </style>
+        `;
+    } else {
+        btnRecordToggle.title = "Start Input Recording (🔴)";
+        btnRecordToggle.style.borderColor = "rgba(255,255,255,0.18)";
+        svg.style.animation = "none";
+        svg.innerHTML = `
+            <circle cx="12" cy="12" r="6" fill="#f7768e" stroke="#f7768e"/>
+        `;
+    }
+}
+
+function updateReplayUI(active) {
+    if (active) {
+        btnReplaySpeed.style.display = "inline-block";
+        btnReplaySpeed.textContent = "1.0x ⏩";
+        btnRecordToggle.title = "Stop Active Replay";
+        btnRecordToggle.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#f7768e" stroke-width="2.5">
+                <rect x="4" y="4" width="16" height="16" fill="#f7768e"/>
+            </svg>
+        `;
+        btnRecordToggle.style.borderColor = "#f7768e";
+    } else {
+        btnReplaySpeed.style.display = "none";
+        playbackSpeed = 1;
+        btnRecordToggle.title = "Start Input Recording (🔴)";
+        btnRecordToggle.style.borderColor = "rgba(255,255,255,0.18)";
+        btnRecordToggle.innerHTML = `
+            <svg id="svg-record" xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <circle cx="12" cy="12" r="6" fill="#f7768e" stroke="#f7768e"/>
+            </svg>
+        `;
+    }
+}
+```
+
+
