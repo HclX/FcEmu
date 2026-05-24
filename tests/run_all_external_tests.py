@@ -27,7 +27,6 @@ KNOWN_DISCREPANCIES = [
     "07-abs_xy.nes",          # Unofficial absolute opcodes
     "apu_test",               # Advanced APU sub-channel timing limits
     "apu_reset",              # APU hardware bootup/reset defaults timing
-    "apu_mixer",              # APU mixing decibels timing checks
     "240p",                   # Advanced PPU visual menu stress suite
     "PaddleTest",             # Custom controller peripheral timing
     "MMC1_A12",               # MMC1 hardware mapper A12 timing splits
