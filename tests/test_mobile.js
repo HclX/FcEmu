@@ -50,7 +50,7 @@ test.describe('Mobile Interactive SPA Gamepad Core Verification', () => {
     });
 
     // 1. Trigger touch overlay tap
-    await page.dispatchEvent('#touch-overlay', 'touchstart', { changedTouches: [{ identifier: 0, clientX: 100, clientY: 100 }] });
+    await page.tap('#touch-overlay');
     
     // The touch overlay should hide
     await expect(page.locator('#touch-overlay')).toHaveClass(/hidden/);

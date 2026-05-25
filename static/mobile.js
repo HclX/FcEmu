@@ -382,10 +382,14 @@ function setupTouchControls() {
     const overlays = document.querySelectorAll(".interactive");
     overlays.forEach(el => {
         el.addEventListener("touchstart", (e) => {
-            e.preventDefault();
+            if (e.target.tagName !== "SELECT") {
+                e.preventDefault();
+            }
         }, { passive: false });
         el.addEventListener("touchmove", (e) => {
-            e.preventDefault();
+            if (e.target.tagName !== "SELECT") {
+                e.preventDefault();
+            }
         }, { passive: false });
     });
 
@@ -522,7 +526,7 @@ romSelect.addEventListener("change", async () => {
 });
 
 // First-touch gesture initializations (Audio Context + Screen Lock)
-touchOverlay.addEventListener("touchstart", async (e) => {
+touchOverlay.addEventListener("click", async (e) => {
     e.preventDefault();
     triggerHaptic();
     requestLandscapeLock();
