@@ -36,12 +36,12 @@ FcEmu is a Rust-based NES emulator compiled to WebAssembly for browser-based pla
 
 | Document | Purpose | Size | Status |
 |----------|---------|------|--------|
-| [ORIGINAL_REQUEST.md](file://ORIGINAL_REQUEST.md) | Chronological user requests (10 follow-ups) | 32 KB | Active |
-| [DESIGN.md](file://DESIGN.md) | V3.0 master design spec | 66 KB | **Truncated** at lines ~1154, ~1336 |
-| [TODO.md](file://TODO.md) | Phase-based task tracker (302 lines) | 18 KB | **All checkboxes unchecked** |
-| [README.md](file://README.md) | Public-facing project description | 6 KB | Missing netplay/PAL mentions |
-| [RELEASE.md](file://RELEASE.md) | Build & deployment guide | 5 KB | No test steps |
-| [BRIEFING.md](file://BRIEFING.md) | AI agent coordination artifact | 1.4 KB | Claims "Victory Confirmed" |
+| [ORIGINAL_REQUEST.md](ORIGINAL_REQUEST.md) | Chronological user requests (10 follow-ups) | 32 KB | Active |
+| [DESIGN.md](DESIGN.md) | V3.0 master design spec | 66 KB | **Truncated** at lines ~1154, ~1336 |
+| [TODO.md](TODO.md) | Phase-based task tracker (302 lines) | 18 KB | **All checkboxes unchecked** |
+| [README.md](README.md) | Public-facing project description | 6 KB | Missing netplay/PAL mentions |
+| [RELEASE.md](RELEASE.md) | Build & deployment guide | 5 KB | No test steps |
+| [BRIEFING.md](BRIEFING.md) | AI agent coordination artifact | 1.4 KB | Claims "Victory Confirmed" |
 | 6 PLAN docs | Debug/verification plans | 3-6 KB ea. | Mostly obsolete (reference deleted server arch) |
 
 ### 1.2 Cross-Document Inconsistencies
@@ -65,7 +65,7 @@ FcEmu is a Rust-based NES emulator compiled to WebAssembly for browser-based pla
 
 ## 2. CPU Implementation
 
-**Files**: [cpu/mod.rs](file://src/core/cpu/mod.rs) (1625 lines) | [bus.rs](file://src/core/bus.rs) | [region.rs](file://src/core/region.rs)
+**Files**: [cpu/mod.rs](src/core/cpu/mod.rs) (1625 lines) | [bus.rs](src/core/bus.rs) | [region.rs](src/core/region.rs)
 
 ### 2.1 What's Good ✅
 - All **151 official 6502 opcodes** implemented
@@ -81,20 +81,20 @@ FcEmu is a Rust-based NES emulator compiled to WebAssembly for browser-based pla
 
 | # | Severity | Issue | Details |
 |---|----------|-------|---------|
-| C1 | 🔴 **Critical** | **OAM DMA doesn't stall CPU** | [bus.rs:238-245](file://src/core/bus.rs#L238-L245): DMA copies 256 bytes via `self.read()` (ticking PPU per-byte), but CPU `step()` only returns the STA $4014 cycle cost (~4 cycles). Real DMA takes **513-514 cycles**. Games relying on DMA timing for raster effects will break. |
+| C1 | 🔴 **Critical** | **OAM DMA doesn't stall CPU** | [bus.rs:238-245](src/core/bus.rs#L238-L245): DMA copies 256 bytes via `self.read()` (ticking PPU per-byte), but CPU `step()` only returns the STA $4014 cycle cost (~4 cycles). Real DMA takes **513-514 cycles**. Games relying on DMA timing for raster effects will break. |
 | C2 | 🟡 Medium | **Interrupt polling at instruction start** | NMI/IRQ polled at the beginning of `step()` before opcode fetch. Real hardware samples during the penultimate cycle of the current instruction. Processes interrupts one instruction too early. |
 | C3 | 🟡 Medium | **Store instructions skip dummy read** | `STA abs,X` (0x9D) and `STA abs,Y` (0x99) should perform a dummy read of the uncorrected address. Missing dummy reads can cause PPU/APU side-effect desync. |
-| C4 | 🟡 Medium | **Open bus returns 0** | [bus.rs:219](file://src/core/bus.rs#L219): Unmapped addresses ($4018-$401F) return `0` instead of last bus value. Some games rely on open bus behavior. |
-| C5 | 🟡 Medium | **`cycles` field dual-use fragility** | `self.cycles` serves as both a running total and a side-channel for `alu_op` to communicate page-crossing penalties. The `extra_cycles` pattern at [lines 1619-1622](file://src/core/cpu/mod.rs#L1619-L1622) works but is fragile. |
+| C4 | 🟡 Medium | **Open bus returns 0** | [bus.rs:219](src/core/bus.rs#L219): Unmapped addresses ($4018-$401F) return `0` instead of last bus value. Some games rely on open bus behavior. |
+| C5 | 🟡 Medium | **`cycles` field dual-use fragility** | `self.cycles` serves as both a running total and a side-channel for `alu_op` to communicate page-crossing penalties. The `extra_cycles` pattern at [lines 1619-1622](src/core/cpu/mod.rs#L1619-L1622) works but is fragile. |
 | C6 | 🟢 Low | **KIL/JAM opcodes not handled** | Opcodes like $02, $12, $22, etc. that should halt the CPU fall through to catch-all NOP. Acceptable for compatibility. |
 | C7 | 🟢 Low | **65KB `mem` array is wasteful** | `SimpleBus` allocates 65,536 bytes but only $0000-$07FF (2KB) is internal RAM. ~63KB wasted. |
-| C8 | 🟢 Low | **Controller read hardcodes bit 6** | [bus.rs:192-199](file://src/core/bus.rs#L192-L199): `| 0x40` is a simplification of open bus on upper bits. |
+| C8 | 🟢 Low | **Controller read hardcodes bit 6** | [bus.rs:192-199](src/core/bus.rs#L192-L199): `| 0x40` is a simplification of open bus on upper bits. |
 
 ---
 
 ## 3. PPU Implementation
 
-**Files**: [ppu/mod.rs](file://src/core/ppu/mod.rs) (215 lines) | [ppu/registers.rs](file://src/core/ppu/registers.rs) (104 lines) | [ppu/render.rs](file://src/core/ppu/render.rs) (264 lines)
+**Files**: [ppu/mod.rs](src/core/ppu/mod.rs) (215 lines) | [ppu/registers.rs](src/core/ppu/registers.rs) (104 lines) | [ppu/render.rs](src/core/ppu/render.rs) (264 lines)
 
 ### 3.1 What's Good ✅
 - **Loopy register implementation** is textbook-correct (v, t, x, w toggle, all five writes)
@@ -110,15 +110,15 @@ FcEmu is a Rust-based NES emulator compiled to WebAssembly for browser-based pla
 
 | # | Severity | Issue | Details |
 |---|----------|-------|---------|
-| P1 | 🔴 **Critical** | **Fine X scrolling is fundamentally broken** | [render.rs:102-111](file://src/core/ppu/render.rs#L102-L111): `render_pixel()` manually checks `(x & 0x07) + self.x >= 8` to decide whether to increment coarse X in a local `v_fetch`. **This double-counts the scroll** — `v` is already being incremented every 8 cycles by the Loopy logic. The `bit_shift` at line 130 compounds the issue by mixing screen pixel `x` with fine-x incorrectly. **Will cause broken scrolling in nearly all scrolling games.** |
-| P2 | 🔴 **Critical** | **VBlank/Overflow/Sprite0Hit flags cleared at wrong time** | [render.rs:69-74](file://src/core/ppu/render.rs#L69-L74): Flags cleared when `scanline >= total_scanlines` (scanline wraps from 261→0). Should be at **dot 1 of pre-render scanline (261)**. Off by an entire scanline. |
-| P3 | 🔴 **Critical** | **Spurious `v = t` copy at scanline wrap** | [render.rs:76](file://src/core/ppu/render.rs#L76): Does a full `v = t` copy when `scanline >= total_scanlines`. This is incorrect — Y transfer happens at dots 280-304 of pre-render scanline (correctly handled elsewhere), and X transfer at dot 257. This bulk copy corrupts scroll state. |
+| P1 | 🔴 **Critical** | **Fine X scrolling is fundamentally broken** | [render.rs:102-111](src/core/ppu/render.rs#L102-L111): `render_pixel()` manually checks `(x & 0x07) + self.x >= 8` to decide whether to increment coarse X in a local `v_fetch`. **This double-counts the scroll** — `v` is already being incremented every 8 cycles by the Loopy logic. The `bit_shift` at line 130 compounds the issue by mixing screen pixel `x` with fine-x incorrectly. **Will cause broken scrolling in nearly all scrolling games.** |
+| P2 | 🔴 **Critical** | **VBlank/Overflow/Sprite0Hit flags cleared at wrong time** | [render.rs:69-74](src/core/ppu/render.rs#L69-L74): Flags cleared when `scanline >= total_scanlines` (scanline wraps from 261→0). Should be at **dot 1 of pre-render scanline (261)**. Off by an entire scanline. |
+| P3 | 🔴 **Critical** | **Spurious `v = t` copy at scanline wrap** | [render.rs:76](src/core/ppu/render.rs#L76): Does a full `v = t` copy when `scanline >= total_scanlines`. This is incorrect — Y transfer happens at dots 280-304 of pre-render scanline (correctly handled elsewhere), and X transfer at dot 257. This bulk copy corrupts scroll state. |
 | P4 | 🔴 High | **Sprite overflow not implemented at all** | The overflow flag (status bit 5) is only cleared, never set. No scanline sprite count evaluation. No hardware bug emulation. Games using overflow for raster effects will malfunction. |
-| P5 | 🟡 Medium | **VBlank set at dot 0 instead of dot 1** | [render.rs:62-67](file://src/core/ppu/render.rs#L62-L67): VBlank flag set when scanline counter first reaches 241 (cycle 0). Should be dot 1. |
+| P5 | 🟡 Medium | **VBlank set at dot 0 instead of dot 1** | [render.rs:62-67](src/core/ppu/render.rs#L62-L67): VBlank flag set when scanline counter first reaches 241 (cycle 0). Should be dot 1. |
 | P6 | 🟡 Medium | **Missing NMI suppression** | Reading $2002 on the exact cycle VBlank is set should suppress both the flag and NMI. Not handled. Breaks games like Battletoads. |
 | P7 | 🟡 Medium | **Missing NMI re-trigger** | Writing to PPUCTRL to enable NMI while VBlank flag is already set should assert NMI. Not checked in `write_ctrl`. |
 | P8 | 🟡 Medium | **Missing odd-frame skip** | NTSC odd frames should skip the last dot of pre-render scanline (340 dots instead of 341). Affects frame timing. |
-| P9 | 🟡 Medium | **FourScreen mirroring broken** | [bus.rs:56-77](file://src/core/bus.rs#L56-L77): Uses `addr & 0x07FF` with only 2KB VRAM. Four-screen requires 4KB (from cartridge). Silently falls back to vertical mirroring. |
+| P9 | 🟡 Medium | **FourScreen mirroring broken** | [bus.rs:56-77](src/core/bus.rs#L56-L77): Uses `addr & 0x07FF` with only 2KB VRAM. Four-screen requires 4KB (from cartridge). Silently falls back to vertical mirroring. |
 | P10 | 🟡 Medium | **Missing tile prefetch** | Coarse X doesn't increment during cycles 321-336 (tile prefetch for next scanline). Could affect scroll timing at scanline boundaries. |
 | P11 | 🟡 Medium | **Grayscale mode not implemented** | PPUMASK bit 0 should AND all palette values with $30. |
 | P12 | 🟡 Medium | **Color emphasis not implemented** | PPUMASK bits 5-7 for color emphasis/tinting not handled. |
@@ -133,7 +133,7 @@ FcEmu is a Rust-based NES emulator compiled to WebAssembly for browser-based pla
 
 ## 4. APU Implementation
 
-**File**: [apu/mod.rs](file://src/core/apu/mod.rs) (601 lines)
+**File**: [apu/mod.rs](src/core/apu/mod.rs) (601 lines)
 
 > [!IMPORTANT]
 > The APU is implemented as a single 601-line file with all channels inline. There are no separate module files for pulse, triangle, noise, or DMC — they are all structs within `mod.rs`.
@@ -152,12 +152,12 @@ FcEmu is a Rust-based NES emulator compiled to WebAssembly for browser-based pla
 | # | Severity | Issue | Details |
 |---|----------|-------|---------|
 | A1 | 🔴 **Critical** | **Envelope unit completely missing** | Pulse and noise channels have `constant_volume` and `volume` fields, but there is **no envelope counter logic** anywhere. When `constant_volume` is false, the NES uses a decaying envelope. Currently always uses raw volume value. All sounds are flat — no volume decay on explosions, impacts, etc. |
-| A2 | 🔴 **Critical** | **Sweep unit completely missing** | [mod.rs:427,447](file://src/core/apu/mod.rs#L427): Registers $4001 and $4005 are **stubbed** (`0x4001 => {}`). No sweep period adjustment, no mute condition. Mario coin sound, 1-Up sound, and many pitch effects are wrong. |
+| A2 | 🔴 **Critical** | **Sweep unit completely missing** | [mod.rs:427,447](src/core/apu/mod.rs#L427): Registers $4001 and $4005 are **stubbed** (`0x4001 => {}`). No sweep period adjustment, no mute condition. Mario coin sound, 1-Up sound, and many pitch effects are wrong. |
 | A3 | 🔴 **Critical** | **DMC produces no audio** | DMC channel tracks bytes_remaining and active state, but **never reads sample bytes from memory, never maintains an output level, and is not included in the mixer**. The `mix()` function takes only pulse1/pulse2/triangle/noise — no DMC. |
 | A4 | 🔴 **Critical** | **$4011 (DMC direct load) unhandled** | No match arm for $4011 in `write_reg()`. Games using direct PCM output (Blaster Master, Battletoads intro voices) produce silence. |
-| A5 | 🔴 High | **$4012 (DMC sample address) stubbed** | [mod.rs:504](file://src/core/apu/mod.rs#L504): `0x4012 => {}` — should compute `0xC000 + (val * 64)`. |
-| A6 | 🟡 Medium | **5-step frame counter bug** | [mod.rs:329-332](file://src/core/apu/mod.rs#L329-L332): Step 4→0 transition incorrectly clocks both quarter and half frame. Step 4 should be the empty step where nothing happens. |
-| A7 | 🟡 Medium | **Triangle linear counter reload flag** conflated with control flag | [mod.rs:256-260](file://src/core/apu/mod.rs#L256-L260): No separate reload flag tracked. When `control_flag` is false, one reload-then-clear cycle is lost. |
+| A5 | 🔴 High | **$4012 (DMC sample address) stubbed** | [mod.rs:504](src/core/apu/mod.rs#L504): `0x4012 => {}` — should compute `0xC000 + (val * 64)`. |
+| A6 | 🟡 Medium | **5-step frame counter bug** | [mod.rs:329-332](src/core/apu/mod.rs#L329-L332): Step 4→0 transition incorrectly clocks both quarter and half frame. Step 4 should be the empty step where nothing happens. |
+| A7 | 🟡 Medium | **Triangle linear counter reload flag** conflated with control flag | [mod.rs:256-260](src/core/apu/mod.rs#L256-L260): No separate reload flag tracked. When `control_flag` is false, one reload-then-clear cycle is lost. |
 | A8 | 🟡 Medium | **Pulse/noise may tick at wrong rate** | All channels tick through `tick(1)` at what appears to be CPU rate. Pulse and noise should tick at **half CPU rate** (APU runs at CPU/2). Triangle correctly ticks at CPU rate. |
 | A9 | 🟡 Medium | **DMC missing from TND mix** | Even if DMC produced output, the mixing formula's `tnd_sum` doesn't include `dmc / 22638.0`. |
 | A10 | 🟢 Low | **IRQ handling** appears correct for frame counter mode. |
@@ -169,7 +169,7 @@ FcEmu is a Rust-based NES emulator compiled to WebAssembly for browser-based pla
 
 ## 5. Cartridge & Mapper Implementation
 
-**Files**: [cartridge/mod.rs](file://src/core/cartridge/mod.rs) (282 lines) | [cartridge/mapper.rs](file://src/core/cartridge/mapper.rs) (916 lines)
+**Files**: [cartridge/mod.rs](src/core/cartridge/mod.rs) (282 lines) | [cartridge/mapper.rs](src/core/cartridge/mapper.rs) (916 lines)
 
 ### 5.1 Supported Mappers
 
@@ -189,7 +189,7 @@ FcEmu is a Rust-based NES emulator compiled to WebAssembly for browser-based pla
 | M1 | 🔴 High | **Missing Mapper 3 (CNROM)** | One of the simplest and most common mappers. Very easy to add. |
 | M2 | 🔴 High | **Missing Mapper 4 (MMC3)** | Used by a huge number of games (SMB3, Mega Man 3-6, Kirby). This is the most impactful missing mapper. |
 | M3 | 🔴 High | **Missing Mapper 7 (AxROM)** | Used by many games (Battletoads, Marble Madness). Simple to implement. |
-| M4 | 🟡 Medium | **Mapper 30 CHR bank bit extraction bug** | [mapper.rs:746](file://src/core/cartridge/mapper.rs#L746): `(val >> 7) & 0x03` extracts bits 7-8, but u8 only has bits 0-7. Should be `(val >> 5) & 0x03` to extract bits 5-6. Only 2 of 4 CHR banks can be selected. |
+| M4 | 🟡 Medium | **Mapper 30 CHR bank bit extraction bug** | [mapper.rs:746](src/core/cartridge/mapper.rs#L746): `(val >> 7) & 0x03` extracts bits 7-8, but u8 only has bits 0-7. Should be `(val >> 5) & 0x03` to extract bits 5-6. Only 2 of 4 CHR banks can be selected. |
 | M5 | 🟡 Medium | **No SRAM persistence** | `has_battery` flag is parsed but PRG RAM is never saved to storage. Battery-backed saves (Zelda, Final Fantasy) lost on page reload. |
 | M6 | 🟢 Low | **MMC1 consecutive write filtering** not implemented | Real hardware ignores writes on consecutive CPU cycles. |
 | M7 | 🟢 Low | **No "DiskDude!" header corruption detection** | Bytes 7-15 in bad ROM dumps can corrupt mapper ID. |
@@ -209,7 +209,7 @@ Current (6 mappers):  ~65-70% of NES library
 
 ## 6. WASM Bridge
 
-**File**: [wasm.rs](file://src/core/wasm.rs) (21.5 KB)
+**File**: [wasm.rs](src/core/wasm.rs) (21.5 KB)
 
 ### 6.1 What's Good ✅
 - Clean API: `load_rom`, `step_frame`, `write_controller`, `save_state`, `load_state`, SRAM management
@@ -221,29 +221,29 @@ Current (6 mappers):  ~65-70% of NES library
 
 | # | Severity | Issue | Details |
 |---|----------|-------|---------|
-| W1 | 🔴 High | **`unwrap()` panics crash WASM** | [wasm.rs:271-344](file://src/core/wasm.rs#L271-L344): `load_state()` uses `.unwrap()` on `try_into()` calls. Malformed state data passes minimum length check but panics on invalid sub-slices, crashing the entire emulator. Should return `false`. |
+| W1 | 🔴 High | **`unwrap()` panics crash WASM** | [wasm.rs:271-344](src/core/wasm.rs#L271-L344): `load_state()` uses `.unwrap()` on `try_into()` calls. Malformed state data passes minimum length check but panics on invalid sub-slices, crashing the entire emulator. Should return `false`. |
 | W2 | 🟡 Medium | **No save state versioning** | No magic bytes or version header. Format changes silently corrupt emulator state. |
-| W3 | 🟡 Medium | **`load_rom` swallows errors** | [wasm.rs:39](file://src/core/wasm.rs#L39): `Err(_)` discards the actual error message. JS gets `false` with no diagnostics. |
-| W4 | 🟢 Low | **`get_sram()` clones on every call** | [wasm.rs:140](file://src/core/wasm.rs#L140): Clones entire PRG RAM Vec. Called every 5 seconds by auto-save timer (~16KB alloc+free). |
+| W3 | 🟡 Medium | **`load_rom` swallows errors** | [wasm.rs:39](src/core/wasm.rs#L39): `Err(_)` discards the actual error message. JS gets `false` with no diagnostics. |
+| W4 | 🟢 Low | **`get_sram()` clones on every call** | [wasm.rs:140](src/core/wasm.rs#L140): Clones entire PRG RAM Vec. Called every 5 seconds by auto-save timer (~16KB alloc+free). |
 | W5 | 🟢 Low | **`set_region` silently defaults** | Invalid region values default to NTSC with no warning. |
 
 ---
 
 ## 7. Web Frontend
 
-**Files**: [index.html](file://static/index.html) (37 KB) | [canvas.js](file://static/canvas.js) (85 KB) | [mobile.html](file://static/mobile.html) | [mobile.js](file://static/mobile.js)
+**Files**: [index.html](static/index.html) (37 KB) | [canvas.js](static/canvas.js) (85 KB) | [mobile.html](static/mobile.html) | [mobile.js](static/mobile.js)
 
 ### 7.1 Issues Found
 
 | # | Severity | Issue | Details |
 |---|----------|-------|---------|
-| F1 | 🔴 **Critical** | **Git merge conflict markers in production HTML** | [index.html:299-300](file://static/index.html#L299-L300): `<<<<<<< HEAD` appears **twice** inside a `<style>` block. Malformed CSS. |
+| F1 | 🔴 **Critical** | **Git merge conflict markers in production HTML** | [index.html:299-300](static/index.html#L299-L300): `<<<<<<< HEAD` appears **twice** inside a `<style>` block. Malformed CSS. |
 | F2 | 🟡 High | **PAL games run 20% too fast** | Frame loop uses `requestAnimationFrame` (60 Hz). PAL NES runs at 50 Hz. No frame timing compensation. |
 | F3 | 🟡 High | **PeerJS version mismatch** | CDN loads 1.5.2, `package.json` has ^1.5.4. |
-| F4 | 🟡 High | **HANDSHAKE silently dropped** | [canvas.js:1661](file://static/canvas.js#L1661): Sent as JSON object, but data handler decodes everything as binary `ArrayBuffer`. HANDSHAKE fails `decodePacket()` silently. |
+| F4 | 🟡 High | **HANDSHAKE silently dropped** | [canvas.js:1661](static/canvas.js#L1661): Sent as JSON object, but data handler decodes everything as binary `ArrayBuffer`. HANDSHAKE fails `decodePacket()` silently. |
 | F5 | 🟡 Medium | **Duplicate `controllerState`** | `window.controllerState = 0` (line 79) AND `let controllerState = 0` (line 621). Keyboard and gamepad use different variables, OR'd together on line 794. Confusing and error-prone. |
 | F6 | 🟡 Medium | **No CDN integrity hashes** | PeerJS and JSZip loaded from CDN without `integrity` attributes (SRI). |
-| F7 | 🟡 Medium | **Recording uses slow btoa() loop** | [canvas.js:2174](file://static/canvas.js#L2174): Character-by-character base64 encoding of ~68KB save state. Should use `Uint8Array` directly. |
+| F7 | 🟡 Medium | **Recording uses slow btoa() loop** | [canvas.js:2174](static/canvas.js#L2174): Character-by-character base64 encoding of ~68KB save state. Should use `Uint8Array` directly. |
 | F8 | 🟡 Medium | **No tab visibility pausing** | When backgrounded, rAF throttles to 1 FPS but audio buffers keep accumulating. Wastes battery on mobile. |
 | F9 | 🟢 Low | **Mobile missing features** | No save states, no ROM upload, no netplay on mobile. |
 | F10 | 🟢 Low | **No ROM size validation** in JS | Arbitrary user bytes passed to Rust parser. No JS-side size limit. |
