@@ -2,7 +2,6 @@
 /target
 
 # Log files
-nestest.log
 *.log
 
 # Temporary debug images
@@ -13,12 +12,6 @@ nestest.log
 
 # ROM files (copyright protection)
 *.nes
-
-# Ignore agent-generated markdown files in root except DESIGN.md, RELEASE.md and README.md
-/*.md
-!/DESIGN.md
-!/RELEASE.md
-!/README.md
 
 # Ignore all agent folders
 .agents/
@@ -35,3 +28,5 @@ package-lock.json
 # Local scratch directory
 /scratch/
 
+# Test results
+/test-results/
