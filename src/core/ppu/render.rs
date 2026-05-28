@@ -1,5 +1,6 @@
 use super::Ppu;
 use crate::core::bus::PpuBus;
+use crate::core::region::EmulatorRegion;
 
 // Standard NTSC NES Palette (64 RGB colors)
 pub const NES_PALETTE: [u8; 64 * 3] = [
@@ -35,6 +36,10 @@ impl Ppu {
             if self.cycle >= 8 && self.cycle <= 248 && self.cycle % 8 == 0 {
                 self.increment_coarse_x();
             }
+            // Tile prefetch increments at cycles 328 and 336
+            if self.cycle == 328 || self.cycle == 336 {
+                self.increment_coarse_x();
+            }
             // Increment Y at cycle 256
             if self.cycle == 256 {
                 self.increment_y();
@@ -43,19 +48,36 @@ impl Ppu {
             if self.cycle == 257 {
                 self.transfer_x();
             }
-            // Transfer Y (vertical reset) during cycles 280..=304 of pre-render scanline 261
+            // Transfer Y (vertical reset) during cycles 280..=304 of pre-render scanline
             if self.scanline == self.timing.pre_render_scanline && self.cycle >= 280 && self.cycle <= 304 {
                 self.transfer_y();
             }
         }
 
-        // Timings & cycle updates
-        self.cycle += 1;
+        // Clear flags at dot 1 of the pre-render scanline
         if self.scanline == self.timing.pre_render_scanline && self.cycle == 1 {
+            self.status &= !0x80; // Clear VBlank flag
             self.status &= !0x40; // Clear Sprite 0 Hit
+            self.status &= !0x20; // Clear Sprite Overflow
+            self.nmi_asserted = false;
         }
 
-        if self.cycle >= 341 {
+        // Advance cycle counter
+        self.cycle += 1;
+
+        // Odd frame skip: on NTSC, on odd frames when rendering is enabled,
+        // skip the last dot of the pre-render scanline
+        let cycle_limit = if self.scanline == self.timing.pre_render_scanline
+            && self.odd_frame
+            && self.rendering_enabled()
+            && self.timing.region == EmulatorRegion::Ntsc
+        {
+            340 // skip cycle 340 (one fewer dot)
+        } else {
+            341
+        };
+
+        if self.cycle >= cycle_limit {
             self.cycle = 0;
             self.scanline += 1;
 
@@ -68,13 +90,7 @@ impl Ppu {
                 frame_complete = true;
             } else if self.scanline >= self.timing.total_scanlines {
                 self.scanline = 0;
-                // Pre-render scanline complete, clear flags
-                self.status &= !0x80; // Clear VBlank flag
-                self.status &= !0x20; // Clear Sprite Overflow
-                self.nmi_asserted = false;
-                if self.rendering_enabled() {
-                    self.v = self.t;
-                }
+                self.odd_frame = !self.odd_frame;
             }
         }
 
@@ -99,21 +115,13 @@ impl Ppu {
         let mut bg_color_idx = self.palette_ram[0];
 
         if self.show_background() && !bg_clipped {
-            let mut v_fetch = self.v;
-            // Check if the fine X scroll boundary is crossed (i.e. pixel lies in the next tile coarse X + 1)
-            if (x as u16 & 0x07) + self.x as u16 >= 8 {
-                if (v_fetch & 0x001F) == 31 {
-                    v_fetch &= !0x001F;
-                    v_fetch ^= 0x0400; // Switch horizontal nametable
-                } else {
-                    v_fetch += 1;
-                }
-            }
-            let coarse_x = v_fetch & 0x001F;
-            let coarse_y = (v_fetch & 0x03E0) >> 5;
-            let fine_y = (v_fetch & 0x7000) >> 12;
+            // Use self.v directly — Loopy coarse-X increments already keep v
+            // pointing at the correct tile. No manual v_fetch adjustment needed.
+            let coarse_x = self.v & 0x001F;
+            let coarse_y = (self.v & 0x03E0) >> 5;
+            let fine_y = (self.v & 0x7000) >> 12;
+            let nametable_select = (self.v & 0x0C00) >> 10;
 
-            let nametable_select = (v_fetch & 0x0C00) >> 10;
             let nt_base = 0x2000 + (nametable_select * 0x400);
             let nt_addr = nt_base + (coarse_y * 32) + coarse_x;
             let tile_idx = bus.read(nt_addr);
@@ -127,7 +135,8 @@ impl Ppu {
             let low_plane = bus.read(pattern_addr);
             let high_plane = bus.read(pattern_addr + 8);
 
-            let bit_shift = 7 - ((x as u16 + self.x as u16) & 0x07);
+            // Use fine-X scroll register directly for bit selection
+            let bit_shift = 7 - self.x;
             let pixel_low = (low_plane >> bit_shift) & 0x01;
             let pixel_high = (high_plane >> bit_shift) & 0x01;
             let color_idx = (pixel_high << 1) | pixel_low;
@@ -146,12 +155,15 @@ impl Ppu {
 
         // 2. Compute Sprite pixel (Scan OAM from 0 to 63)
         let mut sprite_opaque = false;
-        let mut sprite_color_idx = 0;
+        let mut sprite_color_idx = 0u8;
         let mut sprite_priority = false;
         let mut is_sprite_zero = false;
 
         if self.show_sprites() && !sprite_clipped {
             let sprite_height = if (self.ctrl & 0x20) != 0 { 16 } else { 8 };
+
+            // Sprite overflow detection: count sprites on this scanline
+            let mut sprites_found: usize = 0;
 
             for i in 0..64 {
                 let oam_idx = i * 4;
@@ -159,12 +171,20 @@ impl Ppu {
 
                 // A sprite is active on this scanline if Y is in range
                 if y >= sprite_y && y < sprite_y + sprite_height {
+                    sprites_found += 1;
+
+                    if sprites_found > 8 {
+                        // Set sprite overflow flag
+                        self.status |= 0x20;
+                        break; // Stop evaluating further sprites
+                    }
+
                     let oam_tile = self.oam_data[oam_idx + 1];
                     let oam_attr = self.oam_data[oam_idx + 2];
                     let sprite_x = self.oam_data[oam_idx + 3] as usize;
 
                     // Check if current X is within the 8-pixel width of the sprite
-                    if x >= sprite_x && x < sprite_x + 8 {
+                    if x >= sprite_x && x < sprite_x + 8 && !sprite_opaque {
                         // Found overlapping sprite! Resolve fine pixel offsets
                         let mut fine_y = (y - sprite_y) as u16;
                         if (oam_attr & 0x80) != 0 {
@@ -220,9 +240,7 @@ impl Ppu {
                             sprite_color_idx = self.palette_ram[(pal_ram_addr & 0x001F) as usize];
                             sprite_priority = (oam_attr & 0x20) != 0;
                             is_sprite_zero = i == 0;
-
-                            // Standard lower index has priority, stop scanning other sprites!
-                            break;
+                            // Don't break — continue counting sprites for overflow detection
                         }
                     }
                 }
@@ -246,6 +264,13 @@ impl Ppu {
                     sprite_color_idx
                 }
             }
+        };
+
+        // Apply grayscale if PPUMASK bit 0 is set
+        let final_color_idx = if (self.mask & 0x01) != 0 {
+            final_color_idx & 0x30
+        } else {
+            final_color_idx
         };
 
         // Resolve final RGB color from palette index

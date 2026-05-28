@@ -693,6 +693,91 @@ mod tests {
         // Bank 3 offset = 3 * 4096 = 12288
         assert_eq!(mapper.map_ppu_read(0x1000), Some(3 * 4096));
     }
+
+    #[test]
+    fn test_mapper3_chr_bank_switching() {
+        let mut mapper = Mapper3::new(1, 4); // 16KB PRG, 32KB CHR (4 x 8KB banks)
+
+        // Default CHR bank 0
+        assert_eq!(mapper.map_ppu_read(0x0000), Some(0));
+        assert_eq!(mapper.map_ppu_read(0x1FFF), Some(0x1FFF));
+
+        // PRG: 16KB mirrored
+        assert_eq!(mapper.map_cpu_read(0x8000), Some(0));
+        assert_eq!(mapper.map_cpu_read(0xC000), Some(0));
+
+        // Switch to CHR bank 2
+        mapper.map_cpu_write(0x8000, 2);
+        assert_eq!(mapper.chr_bank, 2);
+        assert_eq!(mapper.map_ppu_read(0x0000), Some(2 * 8192));
+        assert_eq!(mapper.map_ppu_read(0x1FFF), Some(2 * 8192 + 0x1FFF));
+
+        // Switch to CHR bank 3
+        mapper.map_cpu_write(0x8000, 3);
+        assert_eq!(mapper.chr_bank, 3);
+        assert_eq!(mapper.map_ppu_read(0x0000), Some(3 * 8192));
+
+        // Only low 2 bits used: writing 0xFF should select bank 3
+        mapper.map_cpu_write(0x8000, 0xFF);
+        assert_eq!(mapper.chr_bank, 3);
+    }
+
+    #[test]
+    fn test_mapper7_prg_bank_switching_and_mirroring() {
+        let mut mapper = Mapper7::new(16, 0); // 256KB PRG (16 x 16KB = 8 x 32KB), CHR RAM
+
+        // Default: bank 0, single-screen lower mirroring
+        assert_eq!(mapper.map_cpu_read(0x8000), Some(0));
+        assert_eq!(mapper.map_cpu_read(0xFFFF), Some(0x7FFF));
+        assert_eq!(mapper.mirroring(), Some(MirroringMode::SingleScreenLower));
+
+        // Switch to PRG bank 3
+        mapper.map_cpu_write(0x8000, 3);
+        assert_eq!(mapper.prg_bank, 3);
+        assert_eq!(mapper.map_cpu_read(0x8000), Some(3 * 32768));
+        assert_eq!(mapper.map_cpu_read(0xFFFF), Some(3 * 32768 + 0x7FFF));
+        // Mirroring unchanged (bit 4 = 0)
+        assert_eq!(mapper.mirroring(), Some(MirroringMode::SingleScreenLower));
+
+        // Switch to PRG bank 5 with upper screen mirroring (bit 4 = 1)
+        mapper.map_cpu_write(0x8000, 0x15); // 0x15 = 0b0001_0101 -> bank 5, mirror upper
+        assert_eq!(mapper.prg_bank, 5);
+        assert_eq!(mapper.map_cpu_read(0x8000), Some(5 * 32768));
+        assert_eq!(mapper.mirroring(), Some(MirroringMode::SingleScreenUpper));
+
+        // CHR RAM (unbanked 8KB)
+        assert_eq!(mapper.map_ppu_read(0x0000), Some(0));
+        assert_eq!(mapper.map_ppu_read(0x1FFF), Some(0x1FFF));
+        assert_eq!(mapper.map_ppu_write(0x0500, 0xAA), Some(0x0500));
+    }
+
+    #[test]
+    fn test_mapper30_chr_bank_fix() {
+        let mut mapper = Mapper30::new(32, 0, MirroringMode::Horizontal);
+
+        // Write val=0b0110_0101 = 0x65
+        // PRG bank = 0x65 & 0x1F = 0x05
+        // CHR bank = (0x65 >> 5) & 0x03 = 0x03
+        // Mirroring = (0x65 >> 7) & 0x01 = 0x00
+        mapper.map_cpu_write(0x8000, 0x65);
+        assert_eq!(mapper.prg_bank, 5);
+        assert_eq!(mapper.chr_bank, 3);
+        assert_eq!(mapper.mirroring_select, 0);
+
+        // CHR bank 3 -> offset 3 * 8192
+        assert_eq!(mapper.map_ppu_read(0x0000), Some(3 * 8192));
+        assert_eq!(mapper.map_ppu_read(0x1FFF), Some(3 * 8192 + 0x1FFF));
+
+        // Write val=0b1010_0000 = 0xA0
+        // PRG bank = 0xA0 & 0x1F = 0x00
+        // CHR bank = (0xA0 >> 5) & 0x03 = 0x01
+        // Mirroring = (0xA0 >> 7) & 0x01 = 0x01
+        mapper.map_cpu_write(0x8000, 0xA0);
+        assert_eq!(mapper.prg_bank, 0);
+        assert_eq!(mapper.chr_bank, 1);
+        assert_eq!(mapper.mirroring_select, 1);
+        assert_eq!(mapper.mirroring(), Some(MirroringMode::SingleScreenUpper));
+    }
 }
 
 /// Mapper30 (UNROM 512) mapping logic.
@@ -742,10 +827,10 @@ impl Mapper for Mapper30 {
         if addr >= 0x8000 {
             // Bit 0-4 selects switchable PRG bank
             self.prg_bank = val & 0x1F;
-            // Bit 7 selects switchable CHR-RAM bank (supporting up to 4 banks!)
-            self.chr_bank = (val >> 7) & 0x03;
-            // Bit 5 controls 1-Screen mirroring select
-            self.mirroring_select = (val >> 5) & 0x01;
+            // Bit 5-6 selects switchable CHR-RAM bank (supporting up to 4 banks!)
+            self.chr_bank = (val >> 5) & 0x03;
+            // Bit 7 controls 1-Screen mirroring select
+            self.mirroring_select = (val >> 7) & 0x01;
             None
         } else if (0x6000..=0x7FFF).contains(&addr) {
             Some((addr - 0x6000) as usize)
@@ -910,6 +995,176 @@ impl Mapper for Mapper34 {
             self.prg_bank = state[0];
             self.chr_bank_0 = state[1];
             self.chr_bank_1 = state[2];
+        }
+    }
+}
+
+/// Mapper3 (CNROM) mapping logic.
+/// PRG ROM: 16KB (mirrored) or 32KB, same as NROM.
+/// CHR ROM: Switchable 8KB banks.
+pub struct Mapper3 {
+    prg_banks: u8,
+    chr_banks: u8,
+    chr_bank: u8,
+}
+
+impl Mapper3 {
+    pub fn new(prg_banks: u8, chr_banks: u8) -> Self {
+        Self {
+            prg_banks,
+            chr_banks,
+            chr_bank: 0,
+        }
+    }
+}
+
+impl Mapper for Mapper3 {
+    fn map_cpu_read(&self, addr: u16) -> Option<usize> {
+        if addr >= 0x8000 {
+            let mask = if self.prg_banks > 1 { 0x7FFF } else { 0x3FFF };
+            Some((addr & mask) as usize)
+        } else if (0x6000..=0x7FFF).contains(&addr) {
+            Some((addr - 0x6000) as usize)
+        } else {
+            None
+        }
+    }
+
+    fn map_cpu_write(&mut self, addr: u16, val: u8) -> Option<usize> {
+        if addr >= 0x8000 {
+            // Writing to $8000-$FFFF selects the CHR bank
+            self.chr_bank = val & 0x03;
+            None
+        } else if (0x6000..=0x7FFF).contains(&addr) {
+            Some((addr - 0x6000) as usize)
+        } else {
+            None
+        }
+    }
+
+    fn map_ppu_read(&self, addr: u16) -> Option<usize> {
+        if addr < 0x2000 {
+            let bank = if self.chr_banks > 0 {
+                self.chr_bank as usize % self.chr_banks as usize
+            } else {
+                0
+            };
+            Some(bank * 8192 + addr as usize)
+        } else {
+            None
+        }
+    }
+
+    fn map_ppu_write(&mut self, addr: u16, _val: u8) -> Option<usize> {
+        if addr < 0x2000 {
+            if self.chr_banks == 0 {
+                // CHR RAM
+                Some(addr as usize)
+            } else {
+                // CHR ROM (read-only, return offset for caller)
+                self.map_ppu_read(addr)
+            }
+        } else {
+            None
+        }
+    }
+
+    fn save_state(&self) -> Vec<u8> {
+        vec![self.chr_bank]
+    }
+
+    fn load_state(&mut self, state: &[u8]) {
+        if !state.is_empty() {
+            self.chr_bank = state[0];
+        }
+    }
+}
+
+/// Mapper7 (AxROM) mapping logic.
+/// PRG ROM: Switchable 32KB banks.
+/// CHR RAM: 8KB (unbanked).
+/// Single-screen mirroring selectable via bit 4.
+pub struct Mapper7 {
+    prg_banks: u8,
+    _chr_banks: u8,
+    prg_bank: u8,
+    mirroring_select: u8,
+}
+
+impl Mapper7 {
+    pub fn new(prg_banks: u8, chr_banks: u8) -> Self {
+        Self {
+            prg_banks,
+            _chr_banks: chr_banks,
+            prg_bank: 0,
+            mirroring_select: 0,
+        }
+    }
+}
+
+impl Mapper for Mapper7 {
+    fn map_cpu_read(&self, addr: u16) -> Option<usize> {
+        if addr >= 0x8000 {
+            let total_32k_banks = (self.prg_banks as usize + 1) / 2;
+            let bank = if total_32k_banks > 0 {
+                self.prg_bank as usize % total_32k_banks
+            } else {
+                0
+            };
+            Some(bank * 32768 + (addr as usize - 0x8000))
+        } else if (0x6000..=0x7FFF).contains(&addr) {
+            Some((addr - 0x6000) as usize)
+        } else {
+            None
+        }
+    }
+
+    fn map_cpu_write(&mut self, addr: u16, val: u8) -> Option<usize> {
+        if addr >= 0x8000 {
+            // Bits 0-2: PRG bank select
+            self.prg_bank = val & 0x07;
+            // Bit 4: mirroring select (0 = single-screen lower, 1 = single-screen upper)
+            self.mirroring_select = (val >> 4) & 0x01;
+            None
+        } else if (0x6000..=0x7FFF).contains(&addr) {
+            Some((addr - 0x6000) as usize)
+        } else {
+            None
+        }
+    }
+
+    fn map_ppu_read(&self, addr: u16) -> Option<usize> {
+        if addr < 0x2000 {
+            Some(addr as usize)
+        } else {
+            None
+        }
+    }
+
+    fn map_ppu_write(&mut self, addr: u16, _val: u8) -> Option<usize> {
+        if addr < 0x2000 {
+            Some(addr as usize)
+        } else {
+            None
+        }
+    }
+
+    fn mirroring(&self) -> Option<MirroringMode> {
+        if self.mirroring_select == 0 {
+            Some(MirroringMode::SingleScreenLower)
+        } else {
+            Some(MirroringMode::SingleScreenUpper)
+        }
+    }
+
+    fn save_state(&self) -> Vec<u8> {
+        vec![self.prg_bank, self.mirroring_select]
+    }
+
+    fn load_state(&mut self, state: &[u8]) {
+        if state.len() >= 2 {
+            self.prg_bank = state[0];
+            self.mirroring_select = state[1];
         }
     }
 }

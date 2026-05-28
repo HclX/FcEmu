@@ -255,6 +255,15 @@ impl WasmEmulator {
     }
 
     pub fn load_state(&mut self, state: &[u8]) -> bool {
+        // Helper macro for safe slice-to-array conversion
+        macro_rules! safe_bytes {
+            ($slice:expr, $len:ty) => {
+                match $slice.try_into() {
+                    Ok(bytes) => bytes,
+                    Err(_) => return false,
+                }
+            };
+        }
         // Minimum size check: CPU (15) + SimpleBus (67589) + PPU (305) + APU (65) + Cartridge Flag (1) = 67975
         if state.len() < 67975 {
             return false;
@@ -268,8 +277,8 @@ impl WasmEmulator {
         self.cpu.y = state[idx]; idx += 1;
         self.cpu.status = state[idx]; idx += 1;
         self.cpu.sp = state[idx]; idx += 1;
-        self.cpu.pc = u16::from_le_bytes(state[idx..idx+2].try_into().unwrap()); idx += 2;
-        self.cpu.cycles = u64::from_le_bytes(state[idx..idx+8].try_into().unwrap()); idx += 8;
+        self.cpu.pc = u16::from_le_bytes(safe_bytes!(&state[idx..idx+2], [u8; 2])); idx += 2;
+        self.cpu.cycles = u64::from_le_bytes(safe_bytes!(&state[idx..idx+8], [u8; 8])); idx += 8;
         
         // 2. SimpleBus
         self.bus.mem.copy_from_slice(&state[idx..idx+65536]); idx += 65536;
@@ -281,8 +290,8 @@ impl WasmEmulator {
         self.bus.controller2_shift = state[idx]; idx += 1;
         
         // 3. PPU
-        self.bus.ppu.v = u16::from_le_bytes(state[idx..idx+2].try_into().unwrap()); idx += 2;
-        self.bus.ppu.t = u16::from_le_bytes(state[idx..idx+2].try_into().unwrap()); idx += 2;
+        self.bus.ppu.v = u16::from_le_bytes(safe_bytes!(&state[idx..idx+2], [u8; 2])); idx += 2;
+        self.bus.ppu.t = u16::from_le_bytes(safe_bytes!(&state[idx..idx+2], [u8; 2])); idx += 2;
         self.bus.ppu.x = state[idx]; idx += 1;
         self.bus.ppu.w = state[idx] == 1; idx += 1;
         self.bus.ppu.ctrl = state[idx]; idx += 1;
@@ -292,25 +301,25 @@ impl WasmEmulator {
         self.bus.ppu.oam_addr = state[idx]; idx += 1;
         self.bus.ppu.oam_data.copy_from_slice(&state[idx..idx+256]); idx += 256;
         self.bus.ppu.palette_ram.copy_from_slice(&state[idx..idx+32]); idx += 32;
-        self.bus.ppu.scanline = i16::from_le_bytes(state[idx..idx+2].try_into().unwrap()); idx += 2;
-        self.bus.ppu.cycle = i16::from_le_bytes(state[idx..idx+2].try_into().unwrap()); idx += 2;
+        self.bus.ppu.scanline = i16::from_le_bytes(safe_bytes!(&state[idx..idx+2], [u8; 2])); idx += 2;
+        self.bus.ppu.cycle = i16::from_le_bytes(safe_bytes!(&state[idx..idx+2], [u8; 2])); idx += 2;
         self.bus.ppu.nmi_asserted = state[idx] == 1; idx += 1;
         
         // 4. APU
-        self.bus.apu.prev_input = f32::from_le_bytes(state[idx..idx+4].try_into().unwrap()); idx += 4;
-        self.bus.apu.prev_output = f32::from_le_bytes(state[idx..idx+4].try_into().unwrap()); idx += 4;
-        self.bus.apu.prev_lpf_output = f32::from_le_bytes(state[idx..idx+4].try_into().unwrap()); idx += 4;
-        self.bus.apu.frame_counter_cycle = u32::from_le_bytes(state[idx..idx+4].try_into().unwrap()); idx += 4;
+        self.bus.apu.prev_input = f32::from_le_bytes(safe_bytes!(&state[idx..idx+4], [u8; 4])); idx += 4;
+        self.bus.apu.prev_output = f32::from_le_bytes(safe_bytes!(&state[idx..idx+4], [u8; 4])); idx += 4;
+        self.bus.apu.prev_lpf_output = f32::from_le_bytes(safe_bytes!(&state[idx..idx+4], [u8; 4])); idx += 4;
+        self.bus.apu.frame_counter_cycle = u32::from_le_bytes(safe_bytes!(&state[idx..idx+4], [u8; 4])); idx += 4;
         self.bus.apu.frame_counter_step = state[idx]; idx += 1;
-        self.bus.apu.cycle_accumulator = f64::from_le_bytes(state[idx..idx+8].try_into().unwrap()); idx += 8;
+        self.bus.apu.cycle_accumulator = f64::from_le_bytes(safe_bytes!(&state[idx..idx+8], [u8; 8])); idx += 8;
         
         // Pulse 1
         self.bus.apu.pulse1.enabled = state[idx] == 1; idx += 1;
         self.bus.apu.pulse1.duty = state[idx]; idx += 1;
         self.bus.apu.pulse1.constant_volume = state[idx] == 1; idx += 1;
         self.bus.apu.pulse1.volume = state[idx]; idx += 1;
-        self.bus.apu.pulse1.timer_period = u16::from_le_bytes(state[idx..idx+2].try_into().unwrap()); idx += 2;
-        self.bus.apu.pulse1.timer = u16::from_le_bytes(state[idx..idx+2].try_into().unwrap()); idx += 2;
+        self.bus.apu.pulse1.timer_period = u16::from_le_bytes(safe_bytes!(&state[idx..idx+2], [u8; 2])); idx += 2;
+        self.bus.apu.pulse1.timer = u16::from_le_bytes(safe_bytes!(&state[idx..idx+2], [u8; 2])); idx += 2;
         self.bus.apu.pulse1.duty_step = state[idx]; idx += 1;
         self.bus.apu.pulse1.length_counter = state[idx]; idx += 1;
         
@@ -319,8 +328,8 @@ impl WasmEmulator {
         self.bus.apu.pulse2.duty = state[idx]; idx += 1;
         self.bus.apu.pulse2.constant_volume = state[idx] == 1; idx += 1;
         self.bus.apu.pulse2.volume = state[idx]; idx += 1;
-        self.bus.apu.pulse2.timer_period = u16::from_le_bytes(state[idx..idx+2].try_into().unwrap()); idx += 2;
-        self.bus.apu.pulse2.timer = u16::from_le_bytes(state[idx..idx+2].try_into().unwrap()); idx += 2;
+        self.bus.apu.pulse2.timer_period = u16::from_le_bytes(safe_bytes!(&state[idx..idx+2], [u8; 2])); idx += 2;
+        self.bus.apu.pulse2.timer = u16::from_le_bytes(safe_bytes!(&state[idx..idx+2], [u8; 2])); idx += 2;
         self.bus.apu.pulse2.duty_step = state[idx]; idx += 1;
         self.bus.apu.pulse2.length_counter = state[idx]; idx += 1;
         
@@ -329,8 +338,8 @@ impl WasmEmulator {
         self.bus.apu.triangle.control_flag = state[idx] == 1; idx += 1;
         self.bus.apu.triangle.linear_counter_reload = state[idx]; idx += 1;
         self.bus.apu.triangle.linear_counter = state[idx]; idx += 1;
-        self.bus.apu.triangle.timer_period = u16::from_le_bytes(state[idx..idx+2].try_into().unwrap()); idx += 2;
-        self.bus.apu.triangle.timer = u16::from_le_bytes(state[idx..idx+2].try_into().unwrap()); idx += 2;
+        self.bus.apu.triangle.timer_period = u16::from_le_bytes(safe_bytes!(&state[idx..idx+2], [u8; 2])); idx += 2;
+        self.bus.apu.triangle.timer = u16::from_le_bytes(safe_bytes!(&state[idx..idx+2], [u8; 2])); idx += 2;
         self.bus.apu.triangle.step = state[idx]; idx += 1;
         self.bus.apu.triangle.length_counter = state[idx]; idx += 1;
         
@@ -339,9 +348,9 @@ impl WasmEmulator {
         self.bus.apu.noise.constant_volume = state[idx] == 1; idx += 1;
         self.bus.apu.noise.volume = state[idx]; idx += 1;
         self.bus.apu.noise.loop_noise = state[idx] == 1; idx += 1;
-        self.bus.apu.noise.timer_period = u16::from_le_bytes(state[idx..idx+2].try_into().unwrap()); idx += 2;
-        self.bus.apu.noise.timer = u16::from_le_bytes(state[idx..idx+2].try_into().unwrap()); idx += 2;
-        self.bus.apu.noise.shift_register = u16::from_le_bytes(state[idx..idx+2].try_into().unwrap()); idx += 2;
+        self.bus.apu.noise.timer_period = u16::from_le_bytes(safe_bytes!(&state[idx..idx+2], [u8; 2])); idx += 2;
+        self.bus.apu.noise.timer = u16::from_le_bytes(safe_bytes!(&state[idx..idx+2], [u8; 2])); idx += 2;
+        self.bus.apu.noise.shift_register = u16::from_le_bytes(safe_bytes!(&state[idx..idx+2], [u8; 2])); idx += 2;
         self.bus.apu.noise.length_counter = state[idx]; idx += 1;
         
         // 5. Cartridge State
@@ -350,7 +359,7 @@ impl WasmEmulator {
             if state.len() < idx + 4 {
                 return false;
             }
-            let cart_state_len = u32::from_le_bytes(state[idx..idx+4].try_into().unwrap()) as usize;
+            let cart_state_len = u32::from_le_bytes(safe_bytes!(&state[idx..idx+4], [u8; 4])) as usize;
             idx += 4;
             if state.len() < idx + cart_state_len {
                 return false;

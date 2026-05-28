@@ -45,6 +45,8 @@ pub struct SimpleBus {
     pub timing: TimingSpec,
     pub ppu_accumulator: u32,
     pub cpu_cycles_spent_in_io: u32,
+    pub dma_cycles: u32,
+    pub open_bus: u8,
 }
 
 pub struct SimplePpuBus<'a> {
@@ -133,7 +135,15 @@ impl SimpleBus {
             timing: NTSC_TIMING,
             ppu_accumulator: 0,
             cpu_cycles_spent_in_io: 0,
+            dma_cycles: 0,
+            open_bus: 0,
         }
+    }
+
+    pub fn consume_dma_cycles(&mut self) -> u32 {
+        let cycles = self.dma_cycles;
+        self.dma_cycles = 0;
+        cycles
     }
 
     pub fn load_cartridge(&mut self, cartridge: Cartridge) {
@@ -179,7 +189,7 @@ impl CpuBus for SimpleBus {
         self.cpu_cycles_spent_in_io += 1;
         let ppu_cycles = self.accumulate_ppu_cycles(1);
         self.tick_ppu(ppu_cycles);
-        match addr {
+        let val = match addr {
             0x2000..=0x3FFF => {
                 let mut ppu_bus = SimplePpuBus {
                     cartridge: &mut self.cartridge,
@@ -216,8 +226,10 @@ impl CpuBus for SimpleBus {
                 }
             }
             0x0000..=0x1FFF => self.mem[(addr & 0x07FF) as usize],
-            _ => 0,
-        }
+            _ => self.open_bus,
+        };
+        self.open_bus = val;
+        val
     }
 
     fn write(&mut self, addr: u16, val: u8) {
@@ -242,6 +254,13 @@ impl CpuBus for SimpleBus {
                     dma_data[i] = self.read(page_addr + i as u16);
                 }
                 self.ppu.write_oam_dma(&dma_data);
+                // 513 total DMA cycles (1 dummy + 256 read + 256 write).
+                // The 256 reads are already ticked above via self.read().
+                // Tick APU/PPU for the remaining 257 cycles (1 dummy + 256 writes).
+                let extra_ppu = self.accumulate_ppu_cycles(257);
+                self.tick_ppu(extra_ppu);
+                self.apu.tick(257);
+                self.dma_cycles = 513;
             }
             0x4016 => {
                 self.controller_latch = val & 0x01;
@@ -312,6 +331,42 @@ mod tests {
         }
         assert_eq!(ppu_cycles, vec![3, 3, 3, 3, 4]);
         assert_eq!(ppu_cycles.iter().sum::<u32>(), 16);
+    }
+
+    #[test]
+    fn test_bus_dma_cycle_counting() {
+        let mut bus = SimpleBus::new();
+        // Initially no DMA cycles pending
+        assert_eq!(bus.dma_cycles, 0);
+        assert_eq!(bus.consume_dma_cycles(), 0);
+
+        // Simulate a DMA write to $4014
+        // Write page 0x02 -> reads from $0200-$02FF
+        bus.write(0x4014, 0x02);
+        assert_eq!(bus.dma_cycles, 513);
+
+        // consume_dma_cycles returns the pending count and resets
+        let consumed = bus.consume_dma_cycles();
+        assert_eq!(consumed, 513);
+        assert_eq!(bus.dma_cycles, 0);
+    }
+
+    #[test]
+    fn test_bus_open_bus_behavior() {
+        let mut bus = SimpleBus::new();
+        assert_eq!(bus.open_bus, 0);
+
+        // Write a known value to RAM and read it back; open_bus should update
+        bus.write(0x0000, 0x42);
+        let val = bus.read(0x0000);
+        assert_eq!(val, 0x42);
+        assert_eq!(bus.open_bus, 0x42);
+
+        // Write another value to a different RAM location
+        bus.write(0x0001, 0xAB);
+        let val = bus.read(0x0001);
+        assert_eq!(val, 0xAB);
+        assert_eq!(bus.open_bus, 0xAB);
     }
 }
 

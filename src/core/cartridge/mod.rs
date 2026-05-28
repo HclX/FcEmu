@@ -2,7 +2,7 @@ pub mod mapper;
 
 use super::bus::MirroringMode;
 use super::region::EmulatorRegion;
-use mapper::{Mapper, Mapper0, Mapper1, Mapper2, Mapper227, Mapper30, Mapper34};
+use mapper::{Mapper, Mapper0, Mapper1, Mapper2, Mapper3, Mapper7, Mapper227, Mapper30, Mapper34};
 
 pub struct Cartridge {
     pub prg_rom: Vec<u8>,
@@ -77,6 +77,8 @@ impl Cartridge {
             0 => Box::new(Mapper0::new(prg_banks, chr_banks)),
             1 => Box::new(Mapper1::new(prg_banks, chr_banks)),
             2 => Box::new(Mapper2::new(prg_banks, chr_banks)),
+            3 => Box::new(Mapper3::new(prg_banks, chr_banks)),
+            7 => Box::new(Mapper7::new(prg_banks, chr_banks)),
             30 => Box::new(Mapper30::new(prg_banks, chr_banks, mirroring)),
             34 => Box::new(Mapper34::new(prg_banks, chr_banks)),
             227 => Box::new(Mapper227::new(prg_banks, chr_banks)),

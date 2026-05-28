@@ -37,6 +37,9 @@ pub struct Ppu {
     // PPU Open Bus latch
     pub open_bus: u8,
     pub timing: TimingSpec,
+
+    // Odd frame toggle (for NTSC odd frame skip)
+    pub odd_frame: bool,
 }
 
 impl Default for Ppu {
@@ -65,6 +68,7 @@ impl Ppu {
             nmi_asserted: false,
             open_bus: 0,
             timing: NTSC_TIMING,
+            odd_frame: false,
         }
     }
 
@@ -84,6 +88,7 @@ impl Ppu {
         self.cycle = 0;
         self.nmi_asserted = false;
         self.open_bus = 0;
+        self.odd_frame = false;
     }
 
     pub fn set_region(&mut self, timing: TimingSpec) {
