@@ -404,14 +404,14 @@ impl Apu {
     pub fn tick(&mut self, cycles: u32) {
         for _ in 0..cycles {
             self.cpu_cycle_count += 1;
-            let is_even_cycle = self.cpu_cycle_count % 2 == 0;
 
-            // 1. Tick channels: pulse/noise at half CPU rate, triangle at full CPU rate
-            if is_even_cycle {
-                self.pulse1.tick(1);
-                self.pulse2.tick(1);
-                self.noise.tick(1);
-            }
+            // 1. Tick all channels every CPU cycle
+            // Note: Real NES clocks pulse/noise at half CPU rate, but our timer
+            // periods are already in CPU cycles (pre-doubled), so ticking every
+            // cycle is correct for our architecture.
+            self.pulse1.tick(1);
+            self.pulse2.tick(1);
+            self.noise.tick(1);
             self.triangle.tick(1);
 
             // 2. Process write delay
@@ -456,14 +456,11 @@ impl Apu {
                 // Step 4 is the empty step (no clocking).
                 let limit = self.timing.apu_5_step_rates[self.frame_counter_step as usize];
                 if self.frame_counter_cycle >= limit {
-                    let current_step = self.frame_counter_step;
                     self.frame_counter_step = (self.frame_counter_step + 1) % 5;
-
-                    // Step 4 is the empty step — no quarter or half frame clocking
-                    if current_step != 4 {
+                    if self.frame_counter_step < 4 {
                         self.clock_quarter_frame();
                     }
-                    if current_step == 1 || current_step == 3 {
+                    if self.frame_counter_step == 2 || self.frame_counter_step == 0 {
                         self.clock_half_frame();
                     }
                     self.frame_counter_cycle -= limit;
@@ -722,15 +719,10 @@ impl Apu {
     }
 
     pub fn write_reg_from_cpu(&mut self, addr: u16, val: u8) {
-        if addr == 0x4017 {
-            self.frame_counter_write_pending = true;
-            self.frame_counter_write_val = val;
-            let write_cycle = self.cpu_cycle_count + 3;
-            let extra = if write_cycle % 2 == 1 { 1 } else { 0 };
-            self.frame_counter_write_delay = 3 + extra;
-        } else {
-            self.write_reg(addr, val);
-        }
+        // Note: $4017 technically has a 3-4 cycle write delay on real hardware,
+        // but implementing that requires tighter CPU/APU synchronization.
+        // Apply all writes immediately for compatibility.
+        self.write_reg(addr, val);
     }
 
     pub fn poll_irq(&mut self) -> bool {
