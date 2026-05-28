@@ -9,6 +9,7 @@ export default defineConfig({
   base: "./",
   
   server: {
+    allowedHosts: true,
     fs: {
       // Allow serving assets from the parent directory (such as pkg/ for fce_core.js)
       allow: [".."]

@@ -37,10 +37,6 @@ impl Ppu {
             if self.cycle >= 8 && self.cycle <= 248 && self.cycle % 8 == 0 {
                 self.increment_coarse_x();
             }
-            // Tile prefetch increments at cycles 328 and 336
-            if self.cycle == 328 || self.cycle == 336 {
-                self.increment_coarse_x();
-            }
             // Increment Y at cycle 256
             if self.cycle == 256 {
                 self.increment_y();
@@ -119,13 +115,21 @@ impl Ppu {
         let mut bg_color_idx = self.palette_ram[0];
 
         if self.show_background() && !bg_clipped {
-            // Use self.v directly — Loopy coarse-X increments already keep v
-            // pointing at the correct tile. No manual v_fetch adjustment needed.
-            let coarse_x = self.v & 0x001F;
-            let coarse_y = (self.v & 0x03E0) >> 5;
-            let fine_y = (self.v & 0x7000) >> 12;
-            let nametable_select = (self.v & 0x0C00) >> 10;
+            let mut v_fetch = self.v;
+            // Check if the fine X scroll boundary is crossed (i.e. pixel lies in the next tile coarse X + 1)
+            if (x as u16 & 0x07) + self.x as u16 >= 8 {
+                if (v_fetch & 0x001F) == 31 {
+                    v_fetch &= !0x001F;
+                    v_fetch ^= 0x0400; // Switch horizontal nametable
+                } else {
+                    v_fetch += 1;
+                }
+            }
+            let coarse_x = v_fetch & 0x001F;
+            let coarse_y = (v_fetch & 0x03E0) >> 5;
+            let fine_y = (v_fetch & 0x7000) >> 12;
 
+            let nametable_select = (v_fetch & 0x0C00) >> 10;
             let nt_base = 0x2000 + (nametable_select * 0x400);
             let nt_addr = nt_base + (coarse_y * 32) + coarse_x;
             let tile_idx = bus.read(nt_addr);
@@ -139,8 +143,7 @@ impl Ppu {
             let low_plane = bus.read(pattern_addr);
             let high_plane = bus.read(pattern_addr + 8);
 
-            // Use fine-X scroll register directly for bit selection
-            let bit_shift = 7 - self.x;
+            let bit_shift = 7 - ((x as u16 + self.x as u16) & 0x07);
             let pixel_low = (low_plane >> bit_shift) & 0x01;
             let pixel_high = (high_plane >> bit_shift) & 0x01;
             let color_idx = (pixel_high << 1) | pixel_low;
