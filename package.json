@@ -7,8 +7,10 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "test": "playwright test",
     "test:netplay": "playwright test tests/test_netplay.js",
-    "test:replay": "playwright test tests/test_replay.js"
+    "test:replay": "playwright test tests/test_replay.js",
+    "test:mobile": "playwright test tests/test_mobile.js"
   },
   "dependencies": {
     "peerjs": "^1.5.4"
