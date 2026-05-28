@@ -38,9 +38,9 @@ python3 tests/verify_blargg_runner.py
 echo -e "\n${YELLOW}[Step 4/6] Executing Unified Golden Image Verification Harness...${NC}"
 python3 tests/verify_golden_images.py
 
-# Step 5: Run E2E Test Runner Harness
-echo -e "\n${YELLOW}[Step 5/6] Executing E2E Test Runner Harness...${NC}"
-python3 tests/e2e_runner.py
+# Step 5: Run Nestest CPU Trace Verification
+echo -e "\n${YELLOW}[Step 5/6] Executing Nestest CPU Trace Verification...${NC}"
+python3 tests/verify_nestest_trace.py
 
 # Step 6: Run Parallel Compatibility Explorer (Unified Blargg + Checksum PAL APU)
 echo -e "\n${YELLOW}[Step 6/6] Executing Parallel Compatibility Explorer...${NC}"
