@@ -27,7 +27,7 @@ pub trait PpuBus {
 use crate::core::apu::Apu;
 use crate::core::cartridge::Cartridge;
 use crate::core::ppu::Ppu;
-use crate::core::region::{TimingSpec, NTSC_TIMING, PAL_TIMING, EmulatorRegion};
+use crate::core::region::{EmulatorRegion, TimingSpec, NTSC_TIMING, PAL_TIMING};
 
 pub struct SimpleBus {
     pub mem: [u8; 65536],
@@ -250,8 +250,8 @@ impl CpuBus for SimpleBus {
             0x4014 => {
                 let page_addr = (val as u16) << 8;
                 let mut dma_data = [0u8; 256];
-                for i in 0..256 {
-                    dma_data[i] = self.read(page_addr + i as u16);
+                for (i, byte) in dma_data.iter_mut().enumerate() {
+                    *byte = self.read(page_addr + i as u16);
                 }
                 self.ppu.write_oam_dma(&dma_data);
                 // 513 total DMA cycles (1 dummy + 256 read + 256 write).
@@ -324,7 +324,7 @@ mod tests {
         // Step 3: 1 * 16 / 5 = 3 (accum = 3)
         // Step 4: 1 * 16 / 5 = 3 (accum = 4)
         // Step 5: 1 * 16 / 5 = 4 (accum = 0)
-        
+
         let mut ppu_cycles = Vec::new();
         for _ in 0..5 {
             ppu_cycles.push(bus.accumulate_ppu_cycles(1));
@@ -369,4 +369,3 @@ mod tests {
         assert_eq!(bus.open_bus, 0xAB);
     }
 }
-

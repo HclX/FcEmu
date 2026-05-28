@@ -1,4 +1,4 @@
-use fce_core::core::bus::{SimpleBus, CpuBus};
+use fce_core::core::bus::{CpuBus, SimpleBus};
 use fce_core::core::cpu::Cpu;
 use std::collections::HashMap;
 use std::env;
@@ -97,12 +97,16 @@ fn main() -> io::Result<()> {
             "--region" => {
                 if i + 1 < args.len() {
                     match args[i + 1].to_lowercase().as_str() {
-                        "ntsc" => forced_region = Some(fce_core::core::region::EmulatorRegion::Ntsc),
+                        "ntsc" => {
+                            forced_region = Some(fce_core::core::region::EmulatorRegion::Ntsc)
+                        }
                         "pal" => forced_region = Some(fce_core::core::region::EmulatorRegion::Pal),
-                        _ => return Err(io::Error::new(
-                            io::ErrorKind::InvalidInput,
-                            "Invalid value for --region (expected ntsc or pal)",
-                        )),
+                        _ => {
+                            return Err(io::Error::new(
+                                io::ErrorKind::InvalidInput,
+                                "Invalid value for --region (expected ntsc or pal)",
+                            ))
+                        }
                     }
                     i += 2;
                 } else {
@@ -235,15 +239,31 @@ fn main() -> io::Result<()> {
             bus.apu.tick(cycles);
 
             if !signature_verified {
-                let b1 = if let Some(ref cart) = bus.cartridge { cart.read_cpu(0x6001) } else { bus.mem[0x6001] };
-                let b2 = if let Some(ref cart) = bus.cartridge { cart.read_cpu(0x6002) } else { bus.mem[0x6002] };
-                let b3 = if let Some(ref cart) = bus.cartridge { cart.read_cpu(0x6003) } else { bus.mem[0x6003] };
+                let b1 = if let Some(ref cart) = bus.cartridge {
+                    cart.read_cpu(0x6001)
+                } else {
+                    bus.mem[0x6001]
+                };
+                let b2 = if let Some(ref cart) = bus.cartridge {
+                    cart.read_cpu(0x6002)
+                } else {
+                    bus.mem[0x6002]
+                };
+                let b3 = if let Some(ref cart) = bus.cartridge {
+                    cart.read_cpu(0x6003)
+                } else {
+                    bus.mem[0x6003]
+                };
                 if b1 == 0xDE && b2 == 0xB0 && b3 == 0x61 {
                     signature_verified = true;
                     println!("Blargg test signature verified: 0xDE 0xB0 0x61");
                 }
             } else {
-                let status = if let Some(ref cart) = bus.cartridge { cart.read_cpu(0x6000) } else { bus.mem[0x6000] };
+                let status = if let Some(ref cart) = bus.cartridge {
+                    cart.read_cpu(0x6000)
+                } else {
+                    bus.mem[0x6000]
+                };
                 match status {
                     0x80 => {
                         // Test is running, continue
@@ -264,7 +284,11 @@ fn main() -> io::Result<()> {
                         let mut msg = Vec::new();
                         let mut addr = 0x6004;
                         loop {
-                            let c = if let Some(ref cart) = bus.cartridge { cart.read_cpu(addr) } else { bus.mem[addr as usize] };
+                            let c = if let Some(ref cart) = bus.cartridge {
+                                cart.read_cpu(addr)
+                            } else {
+                                bus.mem[addr as usize]
+                            };
                             if c == 0 {
                                 break;
                             }
@@ -328,16 +352,10 @@ fn main() -> io::Result<()> {
         }
         println!("PALETTE RAM: {:?}", bus.ppu.palette_ram);
 
-
         if let Some(save_p) = save_path {
             let buffer = *bus.ppu.frame_buffer;
-            image::save_buffer(
-                save_p,
-                &buffer,
-                256,
-                240,
-                image::ColorType::Rgba8,
-            ).map_err(io::Error::other)?;
+            image::save_buffer(save_p, &buffer, 256, 240, image::ColorType::Rgba8)
+                .map_err(io::Error::other)?;
             println!("Saved frame to {}", save_p);
         }
 
@@ -351,7 +369,11 @@ fn main() -> io::Result<()> {
                 )
             };
             file.write_all(bytes)?;
-            println!("Saved {} raw f32 audio samples to {}", samples.len(), audio_p);
+            println!(
+                "Saved {} raw f32 audio samples to {}",
+                samples.len(),
+                audio_p
+            );
         }
     }
 
@@ -361,17 +383,17 @@ fn main() -> io::Result<()> {
 #[cfg(test)]
 mod tests {
 
-    use fce_core::core::cartridge::Cartridge;
-    use fce_core::core::region::EmulatorRegion;
-    use fce_core::core::cpu::Cpu;
     use fce_core::core::bus::SimpleBus;
+    use fce_core::core::cartridge::Cartridge;
+    use fce_core::core::cpu::Cpu;
+    use fce_core::core::region::EmulatorRegion;
 
     fn make_mock_cartridge(region: EmulatorRegion) -> Cartridge {
         let mut rom = vec![0; 16 + 16384 + 8192];
         rom[0..4].copy_from_slice(&[0x4E, 0x45, 0x53, 0x1A]);
         rom[4] = 1; // 1 PRG bank (16KB)
         rom[5] = 1; // 1 CHR bank (8KB)
-        
+
         // Set region
         match region {
             EmulatorRegion::Ntsc => {
@@ -431,12 +453,15 @@ mod tests {
                 }
                 bus.apu.tick(cycles);
             }
-            
+
             let elapsed_cpu_cycles = cpu.cycles - start_cpu_cycles;
-            
+
             // Expected NTSC CPU cycles per frame: 29780.66
-            assert!(elapsed_cpu_cycles >= 29770 && elapsed_cpu_cycles <= 29790,
-                    "NTSC frame cycles: {}", elapsed_cpu_cycles);
+            assert!(
+                elapsed_cpu_cycles >= 29770 && elapsed_cpu_cycles <= 29790,
+                "NTSC frame cycles: {}",
+                elapsed_cpu_cycles
+            );
         }
 
         // 2. Test PAL
@@ -473,13 +498,15 @@ mod tests {
                 }
                 bus.apu.tick(cycles);
             }
-            
+
             let elapsed_cpu_cycles = cpu.cycles - start_cpu_cycles;
-            
+
             // Expected PAL CPU cycles per frame: 33247.5
-            assert!(elapsed_cpu_cycles >= 33235 && elapsed_cpu_cycles <= 33260,
-                    "PAL frame cycles: {}", elapsed_cpu_cycles);
+            assert!(
+                elapsed_cpu_cycles >= 33235 && elapsed_cpu_cycles <= 33260,
+                "PAL frame cycles: {}",
+                elapsed_cpu_cycles
+            );
         }
     }
 }
-

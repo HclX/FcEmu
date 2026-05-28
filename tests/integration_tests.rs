@@ -1,7 +1,7 @@
 //! Integration tests for the NES emulator core.
 //! These tests verify the interaction between CPU, PPU, APU, and Bus.
 
-use fce_core::core::bus::{SimpleBus, CpuBus};
+use fce_core::core::bus::{CpuBus, SimpleBus};
 use fce_core::core::cpu::Cpu;
 use fce_core::core::ppu::Ppu;
 use fce_core::core::region::{EmulatorRegion, NTSC_TIMING, PAL_TIMING};
@@ -275,7 +275,7 @@ fn test_ppu_palette_mirroring() {
     assert_eq!(ppu.get_palette_addr(0x3F14), 4); // $3F14 -> $3F04
     assert_eq!(ppu.get_palette_addr(0x3F18), 8); // $3F18 -> $3F08
     assert_eq!(ppu.get_palette_addr(0x3F1C), 12); // $3F1C -> $3F0C
-    // Non-mirrored addresses stay the same
+                                                  // Non-mirrored addresses stay the same
     assert_eq!(ppu.get_palette_addr(0x3F01), 1);
     assert_eq!(ppu.get_palette_addr(0x3F11), 17);
 }
@@ -349,9 +349,6 @@ fn test_ppu_accumulator_ntsc() {
     let ppu_cycles = bus.accumulate_ppu_cycles(10);
     assert_eq!(ppu_cycles, 30);
 }
-
-
-
 
 #[test]
 fn test_cpu_flags_after_transfer() {

@@ -30,7 +30,8 @@ impl Ppu {
 
         // Internal scroll/address register updates (Loopy updates during active rendering)
         if self.rendering_enabled()
-            && (self.scanline == self.timing.pre_render_scanline || (self.scanline >= 0 && self.scanline < 240))
+            && (self.scanline == self.timing.pre_render_scanline
+                || (self.scanline >= 0 && self.scanline < 240))
         {
             // Increment coarse X every 8 cycles during visible/prerender for cycles 8..=248 (cycle % 8 == 0)
             if self.cycle >= 8 && self.cycle <= 248 && self.cycle % 8 == 0 {
@@ -49,7 +50,10 @@ impl Ppu {
                 self.transfer_x();
             }
             // Transfer Y (vertical reset) during cycles 280..=304 of pre-render scanline
-            if self.scanline == self.timing.pre_render_scanline && self.cycle >= 280 && self.cycle <= 304 {
+            if self.scanline == self.timing.pre_render_scanline
+                && self.cycle >= 280
+                && self.cycle <= 304
+            {
                 self.transfer_y();
             }
         }
@@ -296,7 +300,7 @@ mod tests {
     // ── Mock PPU Bus ──────────────────────────────────────────────────
     // Stores pattern tables in a 8KB array and nametable/attribute in a 2KB array.
     struct MockPpuBus {
-        pattern: [u8; 0x2000],  // $0000-$1FFF
+        pattern: [u8; 0x2000],   // $0000-$1FFF
         nametable: [u8; 0x0800], // $2000-$27FF (mirrored)
     }
 
@@ -351,10 +355,10 @@ mod tests {
     /// Place a sprite in OAM at the given slot.
     fn place_sprite(ppu: &mut Ppu, slot: usize, y: u8, tile: u8, attr: u8, x: u8) {
         let base = slot * 4;
-        ppu.oam_data[base] = y;       // Y position (sprite appears at y+1)
+        ppu.oam_data[base] = y; // Y position (sprite appears at y+1)
         ppu.oam_data[base + 1] = tile; // Tile index
         ppu.oam_data[base + 2] = attr; // Attributes
-        ppu.oam_data[base + 3] = x;    // X position
+        ppu.oam_data[base + 3] = x; // X position
     }
 
     // ── Sprite Evaluation: 8-sprite limit per scanline ────────────────
@@ -379,12 +383,20 @@ mod tests {
         ppu.palette_ram[0x13] = 0x15;
 
         // Ensure overflow flag is clear before rendering
-        assert_eq!(ppu.status & 0x20, 0, "overflow flag should be clear initially");
+        assert_eq!(
+            ppu.status & 0x20,
+            0,
+            "overflow flag should be clear initially"
+        );
 
         ppu.render_pixel(&mut bus);
 
         // After rendering, the 9th sprite should trigger overflow
-        assert_ne!(ppu.status & 0x20, 0, "overflow flag should be set after 9 sprites");
+        assert_ne!(
+            ppu.status & 0x20,
+            0,
+            "overflow flag should be set after 9 sprites"
+        );
     }
 
     #[test]
@@ -403,7 +415,11 @@ mod tests {
 
         ppu.render_pixel(&mut bus);
 
-        assert_eq!(ppu.status & 0x20, 0, "overflow flag should NOT be set with only 8 sprites");
+        assert_eq!(
+            ppu.status & 0x20,
+            0,
+            "overflow flag should NOT be set with only 8 sprites"
+        );
     }
 
     // ── Sprite-0 Hit Detection ────────────────────────────────────────
@@ -423,19 +439,19 @@ mod tests {
         // Tile 2 pattern: addr = 0x0000 + 2*16 = 0x0020
         bus.pattern[0x0020] = 0xFF; // low plane at fine_y=0
         bus.pattern[0x0028] = 0xFF; // high plane at fine_y=0
-        // Sprite palette: base 0x3F10, palette 0, color index 3 -> 0x3F13
+                                    // Sprite palette: base 0x3F10, palette 0, color index 3 -> 0x3F13
         ppu.palette_ram[0x13] = 0x15;
 
         // Make background opaque using tile 1
         ppu.v = 0; // coarse_x=0, coarse_y=0, fine_y=0, nt=0
         bus.nametable[0] = 1; // tile index 1
-        // BG pattern base: ctrl & 0x10 = 0 -> base 0x0000
-        // Tile 1 pattern: addr = 0x0000 + 1*16 = 0x0010
+                              // BG pattern base: ctrl & 0x10 = 0 -> base 0x0000
+                              // Tile 1 pattern: addr = 0x0000 + 1*16 = 0x0010
         bus.pattern[0x0010] = 0xFF; // low plane
         bus.pattern[0x0018] = 0xFF; // high plane
-        // Attribute byte: nt_base(0x2000) + 0x3C0 = 0x23C0. Mock nametable index = 0x3C0
+                                    // Attribute byte: nt_base(0x2000) + 0x3C0 = 0x23C0. Mock nametable index = 0x3C0
         bus.nametable[0x3C0] = 0x00; // palette group 0
-        // BG palette group 0, color index 3 -> palette_ram addr = 0x3F00 + 0*4 + 3 = 0x3F03 -> index 3
+                                     // BG palette group 0, color index 3 -> palette_ram addr = 0x3F00 + 0*4 + 3 = 0x3F03 -> index 3
         ppu.palette_ram[3] = 0x20;
 
         // Clear sprite 0 hit flag
@@ -474,7 +490,11 @@ mod tests {
         ppu.render_pixel(&mut bus);
 
         // Sprite-0 hit should NOT trigger at x=255 (the code checks x < 255)
-        assert_eq!(ppu.status & 0x40, 0, "Sprite 0 hit should not trigger at x=255");
+        assert_eq!(
+            ppu.status & 0x40,
+            0,
+            "Sprite 0 hit should not trigger at x=255"
+        );
     }
 
     // ── Background/Sprite Priority ────────────────────────────────────
@@ -509,7 +529,10 @@ mod tests {
         let fb_idx = (ppu.scanline as usize * 256 + 0) * 4;
         let rendered_r = ppu.frame_buffer[fb_idx];
         let bg_r = NES_PALETTE[(bg_color & 0x3F) as usize * 3];
-        assert_eq!(rendered_r, bg_r, "BG pixel should be displayed when sprite has behind-BG priority");
+        assert_eq!(
+            rendered_r, bg_r,
+            "BG pixel should be displayed when sprite has behind-BG priority"
+        );
     }
 
     #[test]
@@ -542,7 +565,10 @@ mod tests {
         let fb_idx = (ppu.scanline as usize * 256 + 0) * 4;
         let rendered_r = ppu.frame_buffer[fb_idx];
         let sprite_r = NES_PALETTE[(sprite_color & 0x3F) as usize * 3];
-        assert_eq!(rendered_r, sprite_r, "Sprite pixel should be displayed when sprite has in-front priority");
+        assert_eq!(
+            rendered_r, sprite_r,
+            "Sprite pixel should be displayed when sprite has in-front priority"
+        );
     }
 
     // ── Fine X Scroll Pixel Shifting ──────────────────────────────────
@@ -580,7 +606,10 @@ mod tests {
         let opaque_r = NES_PALETTE[(0x15u8 & 0x3F) as usize * 3];
 
         assert_eq!(px0_r, opaque_r, "fine_x=0 should select the opaque bit 7");
-        assert_eq!(px1_r, backdrop_r, "fine_x=1 should select transparent bit 6 (backdrop)");
+        assert_eq!(
+            px1_r, backdrop_r,
+            "fine_x=1 should select transparent bit 6 (backdrop)"
+        );
     }
 
     // ── Scanline Counter Behavior ─────────────────────────────────────
@@ -598,7 +627,10 @@ mod tests {
             ppu.step(&mut bus);
         }
 
-        assert_eq!(ppu.scanline, 1, "scanline should advance to 1 after 341 cycles");
+        assert_eq!(
+            ppu.scanline, 1,
+            "scanline should advance to 1 after 341 cycles"
+        );
         assert_eq!(ppu.cycle, 0, "cycle should reset to 0");
     }
 
@@ -629,7 +661,10 @@ mod tests {
 
         ppu.step(&mut bus);
 
-        assert!(ppu.nmi_asserted, "NMI should be asserted when PPUCTRL NMI is enabled and VBlank starts");
+        assert!(
+            ppu.nmi_asserted,
+            "NMI should be asserted when PPUCTRL NMI is enabled and VBlank starts"
+        );
     }
 
     #[test]
@@ -643,7 +678,10 @@ mod tests {
 
         ppu.step(&mut bus);
 
-        assert!(!ppu.nmi_asserted, "NMI should NOT be asserted when PPUCTRL NMI is disabled");
+        assert!(
+            !ppu.nmi_asserted,
+            "NMI should NOT be asserted when PPUCTRL NMI is disabled"
+        );
     }
 
     #[test]

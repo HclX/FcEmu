@@ -171,7 +171,8 @@ impl Mapper for Mapper1 {
                     }
                     _ => unreachable!(),
                 };
-                let offset = (bank_idx % self.prg_banks as usize) * 16384 + (addr & 0x3FFF) as usize;
+                let offset =
+                    (bank_idx % self.prg_banks as usize) * 16384 + (addr & 0x3FFF) as usize;
                 Some(offset)
             }
             _ => None,
@@ -225,7 +226,11 @@ impl Mapper for Mapper1 {
             let chr_mode = (self.control >> 4) & 0x01;
             if chr_mode != 0 {
                 // 4 KB mode (support up to 8 banks if CHR-RAM size is 32KB!)
-                let chr_banks_4kb = if self.chr_banks > 0 { (self.chr_banks as usize) * 2 } else { 8 };
+                let chr_banks_4kb = if self.chr_banks > 0 {
+                    (self.chr_banks as usize) * 2
+                } else {
+                    8
+                };
                 let bank_idx = if addr < 0x1000 {
                     self.chr_bank_0 as usize % chr_banks_4kb
                 } else {
@@ -234,7 +239,11 @@ impl Mapper for Mapper1 {
                 Some(bank_idx * 4096 + (addr & 0x0FFF) as usize)
             } else {
                 // 8 KB mode (support up to 4 banks if CHR-RAM size is 32KB!)
-                let chr_banks_8kb = if self.chr_banks > 0 { self.chr_banks as usize } else { 4 };
+                let chr_banks_8kb = if self.chr_banks > 0 {
+                    self.chr_banks as usize
+                } else {
+                    4
+                };
                 let bank_idx = (self.chr_bank_0 & 0xFE) as usize % chr_banks_8kb;
                 Some(bank_idx * 8192 + (addr & 0x1FFF) as usize)
             }
@@ -282,7 +291,6 @@ impl Mapper for Mapper1 {
         }
     }
 }
-
 
 /// Mapper2 (UxROM) mapping logic.
 /// PRG ROM: 128KB or 256KB.
@@ -351,13 +359,11 @@ impl Mapper for Mapper2 {
     }
 
     fn save_state(&self) -> Vec<u8> {
-        let mut state = Vec::with_capacity(1);
-        state.push(self.prg_bank);
-        state
+        vec![self.prg_bank]
     }
 
     fn load_state(&mut self, state: &[u8]) {
-        if state.len() >= 1 {
+        if !state.is_empty() {
             self.prg_bank = state[0];
         }
     }
@@ -385,7 +391,8 @@ impl Mapper227 {
 impl Mapper for Mapper227 {
     fn map_cpu_read(&self, addr: u16) -> Option<usize> {
         if addr >= 0x8000 {
-            let outer_bank = (((self.latch >> 5) & 0x03) | (((self.latch >> 8) & 0x01) << 2)) as usize;
+            let outer_bank =
+                (((self.latch >> 5) & 0x03) | (((self.latch >> 8) & 0x01) << 2)) as usize;
             let inner_bank = ((self.latch >> 2) & 0x07) as usize;
             let s = self.latch & 0x01;
             let o = (self.latch >> 7) & 0x01;
@@ -401,13 +408,11 @@ impl Mapper for Mapper227 {
                         // NROM-128 Mode
                         inner_bank
                     }
+                } else if s == 1 {
+                    // PRG A14 is fixed to 0
+                    inner_bank & 0x06
                 } else {
-                    if s == 1 {
-                        // PRG A14 is fixed to 0
-                        inner_bank & 0x06
-                    } else {
-                        inner_bank
-                    }
+                    inner_bank
                 }
             } else {
                 // range $C000-$FFFF
@@ -419,19 +424,18 @@ impl Mapper for Mapper227 {
                         // NROM-128 Mode (mirrored)
                         inner_bank
                     }
+                } else if l == 1 {
+                    // UNROM Mode: fixed inner bank 7
+                    7
                 } else {
-                    if l == 1 {
-                        // UNROM Mode: fixed inner bank 7
-                        7
-                    } else {
-                        // Fixed low bank 0
-                        0
-                    }
+                    // Fixed low bank 0
+                    0
                 }
             };
 
             // 16KB bank selection offset inside 128KB outer block
-            let offset = (outer_bank * 128 * 1024) + (bank_16k * 16 * 1024) + (addr as usize & 0x3FFF);
+            let offset =
+                (outer_bank * 128 * 1024) + (bank_16k * 16 * 1024) + (addr as usize & 0x3FFF);
             Some(offset)
         } else if (0x6000..=0x7FFF).contains(&addr) {
             // Some Mapper 227 carts have 8KB battery WRAM
@@ -550,22 +554,22 @@ mod tests {
     #[test]
     fn test_mapper1_shift_reg_and_prg_banking() {
         let mut mapper = Mapper1::new(4, 2);
-        
+
         // Write 0x03 (binary 00011) to the PRG bank register
         mapper.map_cpu_write(0xE000, 0x01);
         mapper.map_cpu_write(0xE000, 0x01);
         mapper.map_cpu_write(0xE000, 0x00);
         mapper.map_cpu_write(0xE000, 0x00);
         mapper.map_cpu_write(0xE000, 0x00);
-        
+
         assert_eq!(mapper.prg_bank, 0x03);
-        
+
         // Under mode 3:
         // $8000-$BFFF maps to bank 3
         // $C000-$FFFF maps to last bank (bank 3 since prg_banks is 4)
         assert_eq!(mapper.map_cpu_read(0x8000), Some(3 * 16384));
         assert_eq!(mapper.map_cpu_read(0xC000), Some(3 * 16384));
-        
+
         // Reset
         mapper.map_cpu_write(0xE000, 0x80);
         assert_eq!(mapper.shift_reg, 0x10);
@@ -608,9 +612,15 @@ mod tests {
         mapper.map_cpu_write(0x80B1, 0);
         // CPU A14 determines A14 line:
         // CPU $8000 (A14=0) -> bank 4 (inner 4 & 6 = 4) -> offset 1 * 128KB + 4 * 16KB = 192KB
-        assert_eq!(mapper.map_cpu_read(0x8000), Some(1 * 128 * 1024 + 4 * 16 * 1024));
+        assert_eq!(
+            mapper.map_cpu_read(0x8000),
+            Some(1 * 128 * 1024 + 4 * 16 * 1024)
+        );
         // CPU $C000 (A14=1) -> bank 5 (inner 4 | 1 = 5) -> offset 1 * 128KB + 5 * 16KB = 208KB
-        assert_eq!(mapper.map_cpu_read(0xC000), Some(1 * 128 * 1024 + 5 * 16 * 1024));
+        assert_eq!(
+            mapper.map_cpu_read(0xC000),
+            Some(1 * 128 * 1024 + 5 * 16 * 1024)
+        );
 
         // Test Case 4: UNROM Mode (O = 0, L = 1, Inner Bank = 3, Outer Block = 0)
         // Latch address: O=0, L=1 (0x200 -> Bit 9!), Inner=3 (0x0C) -> latch = 0x020C
@@ -625,21 +635,21 @@ mod tests {
 
     #[test]
     fn test_cartridge_handling_all_built_in_roms() {
-        use std::fs;
         use crate::core::cartridge::Cartridge;
+        use std::fs;
 
         // 1. Verify Nova the Squirrel (Mapper 1)
         let squirrel_data = fs::read("static/public/roms/novathesquirrel.nes")
             .expect("Failed to read novathesquirrel.nes");
-        let squirrel_cart = Cartridge::from_rom(&squirrel_data)
-            .expect("Failed to parse novathesquirrel.nes");
+        let squirrel_cart =
+            Cartridge::from_rom(&squirrel_data).expect("Failed to parse novathesquirrel.nes");
         assert_eq!(squirrel_cart.mapper_id, 1);
 
         // 2. Verify Flappy Bird (Mapper 0)
-        let flappy_data = fs::read("static/public/roms/flappy-bird.nes")
-            .expect("Failed to read flappy-bird.nes");
-        let flappy_cart = Cartridge::from_rom(&flappy_data)
-            .expect("Failed to parse flappy-bird.nes");
+        let flappy_data =
+            fs::read("static/public/roms/flappy-bird.nes").expect("Failed to read flappy-bird.nes");
+        let flappy_cart =
+            Cartridge::from_rom(&flappy_data).expect("Failed to parse flappy-bird.nes");
         assert_eq!(flappy_cart.mapper_id, 0);
     }
 
@@ -673,7 +683,7 @@ mod tests {
         // CPU read/write
         // Default bank 0
         assert_eq!(mapper.map_cpu_read(0x8000), Some(0));
-        
+
         // Write PRG bank 1 to $7FFD
         mapper.map_cpu_write(0x7FFD, 1);
         assert_eq!(mapper.prg_bank, 1);
@@ -911,9 +921,9 @@ mod tests {
     #[test]
     fn test_mapper34_save_load_roundtrip() {
         let mut mapper = Mapper34::new(32, 2); // NINA mode
-        mapper.map_cpu_write(0x7FFD, 3);  // PRG bank 3
-        mapper.map_cpu_write(0x7FFE, 1);  // CHR bank 0 = 1
-        mapper.map_cpu_write(0x7FFF, 2);  // CHR bank 1 = 2
+        mapper.map_cpu_write(0x7FFD, 3); // PRG bank 3
+        mapper.map_cpu_write(0x7FFE, 1); // CHR bank 0 = 1
+        mapper.map_cpu_write(0x7FFF, 2); // CHR bank 1 = 2
 
         let state = mapper.save_state();
         assert_eq!(state.len(), 3);
@@ -1084,10 +1094,10 @@ impl Mapper for Mapper30 {
 
 /// Mapper34 (BNROM / NINA-001) mapping logic.
 pub struct Mapper34 {
-    prg_banks: u8, // in 16KB units
-    chr_banks: u8, // in 8KB units
-    pub is_nina: bool, // public for testing
-    pub prg_bank: u8,  // public for testing
+    prg_banks: u8,      // in 16KB units
+    chr_banks: u8,      // in 8KB units
+    pub is_nina: bool,  // public for testing
+    pub prg_bank: u8,   // public for testing
     pub chr_bank_0: u8, // public for testing
     pub chr_bank_1: u8, // public for testing
 }
@@ -1109,9 +1119,7 @@ impl Mapper34 {
 impl Mapper for Mapper34 {
     fn map_cpu_read(&self, addr: u16) -> Option<usize> {
         match addr {
-            0x6000..=0x7FFF => {
-                Some((addr - 0x6000) as usize)
-            }
+            0x6000..=0x7FFF => Some((addr - 0x6000) as usize),
             0x8000..=0xFFFF => {
                 let total_32k_banks = (self.prg_banks as usize) / 2;
                 let bank = if total_32k_banks > 0 {
@@ -1140,16 +1148,12 @@ impl Mapper for Mapper34 {
                     self.chr_bank_1 = val & 0x0F;
                     None
                 }
-                0x6000..=0x7FFC => {
-                    Some((addr - 0x6000) as usize)
-                }
+                0x6000..=0x7FFC => Some((addr - 0x6000) as usize),
                 _ => None,
             }
         } else {
             match addr {
-                0x6000..=0x7FFF => {
-                    Some((addr - 0x6000) as usize)
-                }
+                0x6000..=0x7FFF => Some((addr - 0x6000) as usize),
                 0x8000..=0xFFFF => {
                     self.prg_bank = val & 0x0F;
                     None
@@ -1309,7 +1313,7 @@ impl Mapper7 {
 impl Mapper for Mapper7 {
     fn map_cpu_read(&self, addr: u16) -> Option<usize> {
         if addr >= 0x8000 {
-            let total_32k_banks = (self.prg_banks as usize + 1) / 2;
+            let total_32k_banks = (self.prg_banks as usize).div_ceil(2);
             let bank = if total_32k_banks > 0 {
                 self.prg_bank as usize % total_32k_banks
             } else {

@@ -211,10 +211,10 @@ mod tests {
     fn test_palette_addr_sprite_bg_mirror() {
         let ppu = Ppu::new();
         // Sprite palette addresses that are multiples of 4 mirror to BG
-        assert_eq!(ppu.get_palette_addr(0x3F10), 0);   // $3F10 -> $3F00
-        assert_eq!(ppu.get_palette_addr(0x3F14), 4);   // $3F14 -> $3F04
-        assert_eq!(ppu.get_palette_addr(0x3F18), 8);   // $3F18 -> $3F08
-        assert_eq!(ppu.get_palette_addr(0x3F1C), 12);  // $3F1C -> $3F0C
+        assert_eq!(ppu.get_palette_addr(0x3F10), 0); // $3F10 -> $3F00
+        assert_eq!(ppu.get_palette_addr(0x3F14), 4); // $3F14 -> $3F04
+        assert_eq!(ppu.get_palette_addr(0x3F18), 8); // $3F18 -> $3F08
+        assert_eq!(ppu.get_palette_addr(0x3F1C), 12); // $3F1C -> $3F0C
     }
 
     #[test]
@@ -249,7 +249,10 @@ mod tests {
         ppu.nmi_asserted = false;
 
         ppu.write_ctrl(0x80);
-        assert!(!ppu.nmi_asserted, "NMI should NOT fire when VBlank is clear");
+        assert!(
+            !ppu.nmi_asserted,
+            "NMI should NOT fire when VBlank is clear"
+        );
     }
 
     #[test]
@@ -260,7 +263,10 @@ mod tests {
         ppu.nmi_asserted = false;
 
         ppu.write_ctrl(0x80);
-        assert!(!ppu.nmi_asserted, "NMI should NOT fire if NMI enable was already set");
+        assert!(
+            !ppu.nmi_asserted,
+            "NMI should NOT fire if NMI enable was already set"
+        );
     }
 
     // ── Grayscale mode ─────────────────────────────────────────────

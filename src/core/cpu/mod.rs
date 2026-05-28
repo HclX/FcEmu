@@ -23,13 +23,13 @@ enum AddressingMode {
 }
 
 pub struct Cpu {
-    pub a: u8,       // Accumulator
-    pub x: u8,       // Index X
-    pub y: u8,       // Index Y
-    pub pc: u16,     // Program Counter
-    pub sp: u8,      // Stack Pointer
-    pub status: u8,  // Status Flags
-    pub cycles: u64, // Elapsed CPU cycles
+    pub a: u8,          // Accumulator
+    pub x: u8,          // Index X
+    pub y: u8,          // Index Y
+    pub pc: u16,        // Program Counter
+    pub sp: u8,         // Stack Pointer
+    pub status: u8,     // Status Flags
+    pub cycles: u64,    // Elapsed CPU cycles
     pub power_on: bool, // First power-on boot reset flag
 }
 
@@ -61,7 +61,7 @@ impl Cpu {
         } else {
             self.sp = self.sp.wrapping_sub(3);
             self.status |= 0x04; // Set Interrupt Disable flag (I = 1)
-            self.cycles = 7;     // Soft reset takes exactly 7 cycles
+            self.cycles = 7; // Soft reset takes exactly 7 cycles
         }
         let low = bus.read(0xFFFC) as u16;
         let high = bus.read(0xFFFD) as u16;
@@ -289,7 +289,7 @@ impl Cpu {
         bus.write(addr, orig); // Dummy write
         let val = orig.wrapping_sub(1);
         bus.write(addr, val);
-        
+
         let reg_val = self.a;
         let diff = reg_val.wrapping_sub(val);
         if reg_val >= val {
@@ -380,7 +380,6 @@ impl Cpu {
         self.adc(val);
         crossed
     }
-
 
     fn alu_op<B: CpuBus>(&mut self, mode: AddressingMode, op: u8, bus: &mut B) {
         let (addr, crossed) = self.get_operand_address(mode, bus);
@@ -718,7 +717,9 @@ impl Cpu {
             // Undocumented ALR / ASR
             0x4B => {
                 let (addr, _) = self.get_operand_address(AddressingMode::Immediate, bus);
-                self.pc = self.pc.wrapping_add(self.get_instruction_len(AddressingMode::Immediate));
+                self.pc = self
+                    .pc
+                    .wrapping_add(self.get_instruction_len(AddressingMode::Immediate));
                 let val = bus.read(addr);
                 self.a &= val;
                 if (self.a & 0x01) != 0 {
@@ -734,7 +735,9 @@ impl Cpu {
             // Undocumented ARR
             0x6B => {
                 let (addr, _) = self.get_operand_address(AddressingMode::Immediate, bus);
-                self.pc = self.pc.wrapping_add(self.get_instruction_len(AddressingMode::Immediate));
+                self.pc = self
+                    .pc
+                    .wrapping_add(self.get_instruction_len(AddressingMode::Immediate));
                 let val = bus.read(addr);
                 let intermediate = self.a & val;
                 let old_carry = if (self.status & CARRY) != 0 { 0x80 } else { 0 };
@@ -759,7 +762,9 @@ impl Cpu {
             // Undocumented ATX / LXA
             0xAB => {
                 let (addr, _) = self.get_operand_address(AddressingMode::Immediate, bus);
-                self.pc = self.pc.wrapping_add(self.get_instruction_len(AddressingMode::Immediate));
+                self.pc = self
+                    .pc
+                    .wrapping_add(self.get_instruction_len(AddressingMode::Immediate));
                 let val = bus.read(addr);
                 self.a = val;
                 self.x = self.a;
@@ -770,7 +775,9 @@ impl Cpu {
             // Undocumented AXS / SBX
             0xCB => {
                 let (addr, _) = self.get_operand_address(AddressingMode::Immediate, bus);
-                self.pc = self.pc.wrapping_add(self.get_instruction_len(AddressingMode::Immediate));
+                self.pc = self
+                    .pc
+                    .wrapping_add(self.get_instruction_len(AddressingMode::Immediate));
                 let val = bus.read(addr);
                 let lhs = self.a & self.x;
                 let result = lhs.wrapping_sub(val);
@@ -783,7 +790,6 @@ impl Cpu {
                 self.update_zero_and_negative_flags(self.x);
                 2
             }
-
 
             // LDA
             0xA9 => {
@@ -1713,10 +1719,16 @@ mod tests {
 
         // Status pushed with B clear and BREAK2 set
         let expected_status = (old_status & !BREAK) | BREAK2;
-        assert_eq!(pushed_status, expected_status, "Pushed status should have B clear, bit5 set");
+        assert_eq!(
+            pushed_status, expected_status,
+            "Pushed status should have B clear, bit5 set"
+        );
 
         // Interrupt flag should be set after NMI
-        assert!(cpu.status & INTERRUPT != 0, "I flag should be set after NMI");
+        assert!(
+            cpu.status & INTERRUPT != 0,
+            "I flag should be set after NMI"
+        );
     }
 
     #[test]
@@ -1748,7 +1760,10 @@ mod tests {
         bus.mem[0x8000] = 0xEA;
 
         // Ensure I flag is set (it is by default after reset)
-        assert!(cpu.status & INTERRUPT != 0, "I flag should be set after reset");
+        assert!(
+            cpu.status & INTERRUPT != 0,
+            "I flag should be set after reset"
+        );
 
         bus.irq_pending = true;
         let cycles = cpu.step(&mut bus);
@@ -1776,7 +1791,10 @@ mod tests {
         assert_eq!(cycles, 7, "IRQ takes 7 cycles");
         assert_eq!(cpu.pc, 0xD000, "PC should jump to IRQ vector");
         assert_eq!(cpu.sp, old_sp.wrapping_sub(3), "SP should decrement by 3");
-        assert!(cpu.status & INTERRUPT != 0, "I flag should be set after IRQ");
+        assert!(
+            cpu.status & INTERRUPT != 0,
+            "I flag should be set after IRQ"
+        );
     }
 
     // ---------------------------------------------------------------
@@ -1808,11 +1826,20 @@ mod tests {
 
         // Status pushed with B and BREAK2 set
         let pushed_status = bus.mem[0x0100 + old_sp.wrapping_sub(2) as usize];
-        assert!(pushed_status & BREAK != 0, "B flag should be set in pushed status");
-        assert!(pushed_status & BREAK2 != 0, "Bit 5 should be set in pushed status");
+        assert!(
+            pushed_status & BREAK != 0,
+            "B flag should be set in pushed status"
+        );
+        assert!(
+            pushed_status & BREAK2 != 0,
+            "Bit 5 should be set in pushed status"
+        );
 
         // I flag should be set after BRK
-        assert!(cpu.status & INTERRUPT != 0, "I flag should be set after BRK");
+        assert!(
+            cpu.status & INTERRUPT != 0,
+            "I flag should be set after BRK"
+        );
     }
 
     // ---------------------------------------------------------------
@@ -1884,7 +1911,10 @@ mod tests {
 
         assert!(cpu.status & ZERO != 0, "Z flag should be set when A == M");
         assert!(cpu.status & CARRY != 0, "C flag should be set when A >= M");
-        assert!(cpu.status & NEGATIVE == 0, "N flag should be clear for zero result");
+        assert!(
+            cpu.status & NEGATIVE == 0,
+            "N flag should be clear for zero result"
+        );
     }
 
     #[test]
@@ -1897,7 +1927,10 @@ mod tests {
 
         assert!(cpu.status & ZERO == 0, "Z flag should be clear");
         assert!(cpu.status & CARRY != 0, "C flag should be set when A > M");
-        assert!(cpu.status & NEGATIVE == 0, "N flag should be clear: (0x80 - 0x01) = 0x7F");
+        assert!(
+            cpu.status & NEGATIVE == 0,
+            "N flag should be clear: (0x80 - 0x01) = 0x7F"
+        );
     }
 
     #[test]
@@ -1910,7 +1943,10 @@ mod tests {
 
         assert!(cpu.status & CARRY == 0, "C flag should be clear when A < M");
         assert!(cpu.status & ZERO == 0, "Z flag should be clear");
-        assert!(cpu.status & NEGATIVE != 0, "N flag set because (0x01 - 0x80) = 0x81");
+        assert!(
+            cpu.status & NEGATIVE != 0,
+            "N flag set because (0x01 - 0x80) = 0x81"
+        );
     }
 
     #[test]
@@ -1921,8 +1957,14 @@ mod tests {
         bus.mem[0x8001] = 0x10;
         cpu.step(&mut bus);
 
-        assert!(cpu.status & ZERO != 0, "Z should be set for CPX when X == M");
-        assert!(cpu.status & CARRY != 0, "C should be set for CPX when X >= M");
+        assert!(
+            cpu.status & ZERO != 0,
+            "Z should be set for CPX when X == M"
+        );
+        assert!(
+            cpu.status & CARRY != 0,
+            "C should be set for CPX when X >= M"
+        );
     }
 
     #[test]
@@ -1935,7 +1977,10 @@ mod tests {
 
         assert!(cpu.status & ZERO == 0, "Z should be clear");
         assert!(cpu.status & CARRY != 0, "C should be set when Y > M");
-        assert!(cpu.status & NEGATIVE != 0, "N should be set (0xFF - 0x01 = 0xFE)");
+        assert!(
+            cpu.status & NEGATIVE != 0,
+            "N should be set (0xFF - 0x01 = 0xFE)"
+        );
     }
 
     #[test]
@@ -1996,7 +2041,10 @@ mod tests {
         let cycles = cpu.step(&mut bus);
 
         assert_eq!(cpu.a, 0x77);
-        assert_eq!(cycles, 5, "LDA abs,X with page cross should take 4+1=5 cycles");
+        assert_eq!(
+            cycles, 5,
+            "LDA abs,X with page cross should take 4+1=5 cycles"
+        );
     }
 
     #[test]
@@ -2011,6 +2059,9 @@ mod tests {
         let cycles = cpu.step(&mut bus);
 
         assert_eq!(cpu.a, 0x88);
-        assert_eq!(cycles, 4, "LDA abs,X without page cross should take 4 cycles");
+        assert_eq!(
+            cycles, 4,
+            "LDA abs,X without page cross should take 4 cycles"
+        );
     }
 }

@@ -125,10 +125,7 @@ impl PulseChannel {
     }
 
     pub fn sample(&self) -> f32 {
-        if !self.enabled
-            || self.length_counter == 0
-            || self.sweep.muting(self.timer_period)
-        {
+        if !self.enabled || self.length_counter == 0 || self.sweep.muting(self.timer_period) {
             return 0.0;
         }
         let sequence = match self.duty {
@@ -1044,7 +1041,10 @@ mod tests {
         // cycles_per_byte = rate * 8 = 428 * 8 = 3424
         apu.tick(3424);
 
-        assert!(!apu.dmc_active, "DMC should become inactive after consuming all bytes");
+        assert!(
+            !apu.dmc_active,
+            "DMC should become inactive after consuming all bytes"
+        );
         assert_eq!(apu.dmc_bytes_remaining, 0);
     }
 
@@ -1086,7 +1086,10 @@ mod tests {
 
         // With loop enabled, bytes_remaining should reload to sample_length
         assert!(apu.dmc_active, "DMC should remain active when looping");
-        assert_eq!(apu.dmc_bytes_remaining, 1, "bytes_remaining should reload on loop");
+        assert_eq!(
+            apu.dmc_bytes_remaining, 1,
+            "bytes_remaining should reload on loop"
+        );
     }
 
     #[test]
@@ -1102,7 +1105,10 @@ mod tests {
         apu.tick(3424);
 
         // Even with IRQ enabled, looping should NOT assert IRQ
-        assert!(!apu.dmc_irq_pending, "DMC IRQ should not fire when loop causes restart");
+        assert!(
+            !apu.dmc_irq_pending,
+            "DMC IRQ should not fire when loop causes restart"
+        );
     }
 
     // ── DMC IRQ Assertion ───────────────────────────────────────────
@@ -1119,7 +1125,10 @@ mod tests {
         apu.write_reg(0x4015, 0x10);
         apu.tick(3424);
 
-        assert!(apu.dmc_irq_pending, "DMC IRQ should be asserted on sample completion");
+        assert!(
+            apu.dmc_irq_pending,
+            "DMC IRQ should be asserted on sample completion"
+        );
         assert!(!apu.dmc_active);
     }
 
@@ -1135,7 +1144,10 @@ mod tests {
         apu.write_reg(0x4015, 0x10);
         apu.tick(3424);
 
-        assert!(!apu.dmc_irq_pending, "DMC IRQ should NOT fire when irq_enable is false");
+        assert!(
+            !apu.dmc_irq_pending,
+            "DMC IRQ should NOT fire when irq_enable is false"
+        );
     }
 
     #[test]
@@ -1146,7 +1158,10 @@ mod tests {
 
         // Writing $4015 should clear DMC IRQ
         apu.write_reg(0x4015, 0x00);
-        assert!(!apu.dmc_irq_pending, "DMC IRQ should be cleared by any $4015 write");
+        assert!(
+            !apu.dmc_irq_pending,
+            "DMC IRQ should be cleared by any $4015 write"
+        );
     }
 
     #[test]
@@ -1156,7 +1171,11 @@ mod tests {
         apu.dmc_irq_pending = true;
 
         let status = apu.read_reg(0x4015);
-        assert_ne!(status & 0x80, 0, "bit 7 of $4015 should reflect DMC IRQ pending");
+        assert_ne!(
+            status & 0x80,
+            0,
+            "bit 7 of $4015 should reflect DMC IRQ pending"
+        );
     }
 
     // ── DMC Rate Table Selection ────────────────────────────────────
@@ -1200,6 +1219,9 @@ mod tests {
 
         // Writing $4010 with bit 7 = 0 should clear dmc_irq_pending
         apu.write_reg(0x4010, 0x00);
-        assert!(!apu.dmc_irq_pending, "disabling DMC IRQ via $4010 should clear pending flag");
+        assert!(
+            !apu.dmc_irq_pending,
+            "disabling DMC IRQ via $4010 should clear pending flag"
+        );
     }
 }

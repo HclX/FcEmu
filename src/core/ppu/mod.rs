@@ -98,7 +98,7 @@ impl Ppu {
 
     pub fn get_palette_addr(&self, addr: u16) -> usize {
         let palette_addr = (addr & 0x001F) as usize;
-        if palette_addr >= 16 && palette_addr % 4 == 0 {
+        if palette_addr >= 16 && palette_addr.is_multiple_of(4) {
             palette_addr - 16
         } else {
             palette_addr
@@ -144,7 +144,7 @@ impl Ppu {
                     let palette_val = self.palette_ram[self.get_palette_addr(access_addr)];
                     // Store background/nametable VRAM behind palette in buffer
                     self.data_buffer = bus.read(access_addr - 0x1000); // dummy read from Nt mirror
-                    
+
                     // Palette read: upper 2 bits (7-6) are open bus, lower 6 bits (5-0) are palette data
                     let open_bus_bits = self.open_bus & 0xC0;
                     let palette_bits = palette_val & 0x3F;
@@ -159,7 +159,7 @@ impl Ppu {
             }
             _ => self.open_bus,
         };
-        
+
         self.open_bus = val;
         val
     }

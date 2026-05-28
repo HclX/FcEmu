@@ -2,7 +2,7 @@ pub mod mapper;
 
 use super::bus::MirroringMode;
 use super::region::EmulatorRegion;
-use mapper::{Mapper, Mapper0, Mapper1, Mapper2, Mapper3, Mapper7, Mapper227, Mapper30, Mapper34};
+use mapper::{Mapper, Mapper0, Mapper1, Mapper2, Mapper227, Mapper3, Mapper30, Mapper34, Mapper7};
 
 pub struct Cartridge {
     pub prg_rom: Vec<u8>,
@@ -96,12 +96,10 @@ impl Cartridge {
                 0x03 => EmulatorRegion::Pal,
                 _ => EmulatorRegion::Ntsc,
             }
+        } else if (data[9] & 0x01) != 0 {
+            EmulatorRegion::Pal
         } else {
-            if (data[9] & 0x01) != 0 {
-                EmulatorRegion::Pal
-            } else {
-                EmulatorRegion::Ntsc
-            }
+            EmulatorRegion::Ntsc
         };
 
         Ok(Self {
@@ -173,19 +171,19 @@ impl Cartridge {
 
     pub fn save_state(&self) -> Vec<u8> {
         let mut state = Vec::with_capacity(8192 * 2 + 32);
-        
+
         // Write PRG RAM (always 8KB in our core)
         state.extend_from_slice(&self.prg_ram);
-        
+
         // Write CHR RAM length then data
         state.extend_from_slice(&(self.chr_ram.len() as u32).to_le_bytes());
         state.extend_from_slice(&self.chr_ram);
-        
+
         // Write Mapper state length then data
         let mapper_state = self.mapper.save_state();
         state.extend_from_slice(&(mapper_state.len() as u32).to_le_bytes());
         state.extend_from_slice(&mapper_state);
-        
+
         state
     }
 
@@ -195,13 +193,13 @@ impl Cartridge {
             return Err("State too small for Cartridge".to_string());
         }
         let mut idx = 0;
-        
+
         // Restore PRG RAM
         self.prg_ram.copy_from_slice(&state[idx..idx + prg_ram_len]);
         idx += prg_ram_len;
-        
+
         // Restore CHR RAM
-        let chr_ram_len = u32::from_le_bytes(state[idx..idx+4].try_into().unwrap()) as usize;
+        let chr_ram_len = u32::from_le_bytes(state[idx..idx + 4].try_into().unwrap()) as usize;
         idx += 4;
         if chr_ram_len > 0 {
             if state.len() < idx + chr_ram_len {
@@ -213,12 +211,12 @@ impl Cartridge {
             self.chr_ram.copy_from_slice(&state[idx..idx + chr_ram_len]);
             idx += chr_ram_len;
         }
-        
+
         // Restore Mapper State
         if state.len() < idx + 4 {
             return Err("State truncated for Mapper length".to_string());
         }
-        let mapper_state_len = u32::from_le_bytes(state[idx..idx+4].try_into().unwrap()) as usize;
+        let mapper_state_len = u32::from_le_bytes(state[idx..idx + 4].try_into().unwrap()) as usize;
         idx += 4;
         if mapper_state_len > 0 {
             if state.len() < idx + mapper_state_len {
@@ -227,7 +225,7 @@ impl Cartridge {
             self.mapper.load_state(&state[idx..idx + mapper_state_len]);
             idx += mapper_state_len;
         }
-        
+
         Ok(idx)
     }
 }
@@ -242,7 +240,7 @@ mod tests {
         header[0..4].copy_from_slice(&[0x4E, 0x45, 0x53, 0x1A]); // "NES\x1a"
         header[4] = 1; // 1 PRG bank
         header[5] = 1; // 1 CHR bank
-        
+
         if is_nes_2 {
             header[7] = (header[7] & !0x0C) | 0x08; // Set NES 2.0 format flag
             header[12] = region_byte_12;
@@ -280,4 +278,3 @@ mod tests {
         assert_eq!(cart.region, EmulatorRegion::Ntsc);
     }
 }
-
