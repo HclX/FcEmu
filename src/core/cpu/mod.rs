@@ -1622,3 +1622,395 @@ impl Cpu {
         cycles + extra_cycles
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::bus::CpuBus;
+
+    /// Minimal bus for CPU-only unit tests — no PPU/APU side effects.
+    struct TestBus {
+        mem: [u8; 65536],
+        nmi_pending: bool,
+        irq_pending: bool,
+    }
+
+    impl TestBus {
+        fn new() -> Self {
+            Self {
+                mem: [0; 65536],
+                nmi_pending: false,
+                irq_pending: false,
+            }
+        }
+    }
+
+    impl CpuBus for TestBus {
+        fn read(&mut self, addr: u16) -> u8 {
+            self.mem[addr as usize]
+        }
+        fn write(&mut self, addr: u16, val: u8) {
+            self.mem[addr as usize] = val;
+        }
+        fn poll_nmi(&mut self) -> bool {
+            let r = self.nmi_pending;
+            self.nmi_pending = false;
+            r
+        }
+        fn poll_irq(&mut self) -> bool {
+            let r = self.irq_pending;
+            self.irq_pending = false;
+            r
+        }
+        fn clear_nmi(&mut self) {
+            self.nmi_pending = false;
+        }
+        fn reset(&mut self) {}
+    }
+
+    /// Helper: create a CPU pointing at a given origin address, ready to execute.
+    fn setup_cpu_at(origin: u16) -> (Cpu, TestBus) {
+        let mut bus = TestBus::new();
+        let mut cpu = Cpu::new();
+        // Write reset vector
+        bus.mem[0xFFFC] = (origin & 0xFF) as u8;
+        bus.mem[0xFFFD] = (origin >> 8) as u8;
+        cpu.reset(&mut bus);
+        assert_eq!(cpu.pc, origin);
+        (cpu, bus)
+    }
+
+    // ---------------------------------------------------------------
+    // NMI handling
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_nmi_pushes_pc_and_status_and_jumps_to_vector() {
+        let (mut cpu, mut bus) = setup_cpu_at(0x8000);
+        // Set NMI vector
+        bus.mem[0xFFFA] = 0x50;
+        bus.mem[0xFFFB] = 0xA0; // NMI vector = $A050
+
+        let old_pc = cpu.pc;
+        let old_sp = cpu.sp;
+        let old_status = cpu.status;
+
+        cpu.nmi(&mut bus);
+
+        // PC should be the NMI vector
+        assert_eq!(cpu.pc, 0xA050, "PC should jump to NMI vector");
+
+        // Stack should contain PC high, PC low, status (3 bytes pushed)
+        assert_eq!(cpu.sp, old_sp.wrapping_sub(3), "SP should decrement by 3");
+
+        // Read back pushed values
+        let pushed_pcl = bus.mem[0x0100 + old_sp.wrapping_sub(1) as usize];
+        let pushed_pch = bus.mem[0x0100 + old_sp as usize];
+        let pushed_status = bus.mem[0x0100 + old_sp.wrapping_sub(2) as usize];
+
+        let pushed_pc = (pushed_pch as u16) << 8 | pushed_pcl as u16;
+        assert_eq!(pushed_pc, old_pc, "Pushed PC should be the old PC");
+
+        // Status pushed with B clear and BREAK2 set
+        let expected_status = (old_status & !BREAK) | BREAK2;
+        assert_eq!(pushed_status, expected_status, "Pushed status should have B clear, bit5 set");
+
+        // Interrupt flag should be set after NMI
+        assert!(cpu.status & INTERRUPT != 0, "I flag should be set after NMI");
+    }
+
+    #[test]
+    fn test_nmi_via_step_poll() {
+        let (mut cpu, mut bus) = setup_cpu_at(0x8000);
+        bus.mem[0xFFFA] = 0x00;
+        bus.mem[0xFFFB] = 0xC0; // NMI vector = $C000
+
+        // Place a NOP at $8000 (should not execute if NMI fires first)
+        bus.mem[0x8000] = 0xEA;
+
+        bus.nmi_pending = true;
+        let cycles = cpu.step(&mut bus);
+        assert_eq!(cycles, 7, "NMI takes 7 cycles");
+        assert_eq!(cpu.pc, 0xC000, "PC should be at NMI vector");
+    }
+
+    // ---------------------------------------------------------------
+    // IRQ handling
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_irq_masked_when_i_flag_set() {
+        let (mut cpu, mut bus) = setup_cpu_at(0x8000);
+        bus.mem[0xFFFE] = 0x00;
+        bus.mem[0xFFFF] = 0xD0; // IRQ vector = $D000
+
+        // Place a NOP at $8000
+        bus.mem[0x8000] = 0xEA;
+
+        // Ensure I flag is set (it is by default after reset)
+        assert!(cpu.status & INTERRUPT != 0, "I flag should be set after reset");
+
+        bus.irq_pending = true;
+        let cycles = cpu.step(&mut bus);
+
+        // IRQ should be masked, NOP should execute instead
+        assert_eq!(cycles, 2, "NOP should execute, not IRQ");
+        assert_eq!(cpu.pc, 0x8001, "PC should advance past NOP");
+    }
+
+    #[test]
+    fn test_irq_fires_when_i_flag_clear() {
+        let (mut cpu, mut bus) = setup_cpu_at(0x8000);
+        bus.mem[0xFFFE] = 0x00;
+        bus.mem[0xFFFF] = 0xD0; // IRQ vector = $D000
+
+        bus.mem[0x8000] = 0xEA; // NOP
+
+        // Clear interrupt disable flag
+        cpu.status &= !INTERRUPT;
+
+        let old_sp = cpu.sp;
+        bus.irq_pending = true;
+        let cycles = cpu.step(&mut bus);
+
+        assert_eq!(cycles, 7, "IRQ takes 7 cycles");
+        assert_eq!(cpu.pc, 0xD000, "PC should jump to IRQ vector");
+        assert_eq!(cpu.sp, old_sp.wrapping_sub(3), "SP should decrement by 3");
+        assert!(cpu.status & INTERRUPT != 0, "I flag should be set after IRQ");
+    }
+
+    // ---------------------------------------------------------------
+    // BRK instruction
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_brk_pushes_pc_plus_2_and_status_with_b_flag() {
+        let (mut cpu, mut bus) = setup_cpu_at(0x8000);
+        bus.mem[0xFFFE] = 0x00;
+        bus.mem[0xFFFF] = 0xE0; // IRQ/BRK vector = $E000
+
+        bus.mem[0x8000] = 0x00; // BRK
+        bus.mem[0x8001] = 0xFF; // BRK padding byte
+
+        let old_sp = cpu.sp;
+        let _old_status = cpu.status;
+
+        let cycles = cpu.step(&mut bus);
+
+        assert_eq!(cycles, 7, "BRK takes 7 cycles");
+        assert_eq!(cpu.pc, 0xE000, "PC should jump to BRK vector");
+
+        // BRK pushes PC+2 (i.e. $8002)
+        let pushed_pch = bus.mem[0x0100 + old_sp as usize];
+        let pushed_pcl = bus.mem[0x0100 + old_sp.wrapping_sub(1) as usize];
+        let pushed_pc = (pushed_pch as u16) << 8 | pushed_pcl as u16;
+        assert_eq!(pushed_pc, 0x8002, "BRK should push PC+2");
+
+        // Status pushed with B and BREAK2 set
+        let pushed_status = bus.mem[0x0100 + old_sp.wrapping_sub(2) as usize];
+        assert!(pushed_status & BREAK != 0, "B flag should be set in pushed status");
+        assert!(pushed_status & BREAK2 != 0, "Bit 5 should be set in pushed status");
+
+        // I flag should be set after BRK
+        assert!(cpu.status & INTERRUPT != 0, "I flag should be set after BRK");
+    }
+
+    // ---------------------------------------------------------------
+    // Stack wrapping at $0100-$01FF
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_stack_wraps_around_page_one() {
+        let (mut cpu, mut bus) = setup_cpu_at(0x8000);
+
+        // Set SP to 0x01 so pushing 3 bytes will wrap around
+        cpu.sp = 0x01;
+
+        // Push three bytes (simulates push_u16 + push for an interrupt)
+        cpu.push(&mut bus, 0xAA);
+        assert_eq!(cpu.sp, 0x00);
+        assert_eq!(bus.mem[0x0101], 0xAA);
+
+        cpu.push(&mut bus, 0xBB);
+        assert_eq!(cpu.sp, 0xFF); // Wrapped!
+        assert_eq!(bus.mem[0x0100], 0xBB);
+
+        cpu.push(&mut bus, 0xCC);
+        assert_eq!(cpu.sp, 0xFE);
+        assert_eq!(bus.mem[0x01FF], 0xCC);
+
+        // Pop should reverse the wrapping
+        let v1 = cpu.pop(&mut bus);
+        assert_eq!(v1, 0xCC);
+        assert_eq!(cpu.sp, 0xFF);
+
+        let v2 = cpu.pop(&mut bus);
+        assert_eq!(v2, 0xBB);
+        assert_eq!(cpu.sp, 0x00);
+
+        let v3 = cpu.pop(&mut bus);
+        assert_eq!(v3, 0xAA);
+        assert_eq!(cpu.sp, 0x01);
+    }
+
+    #[test]
+    fn test_stack_push_u16_wrap() {
+        let (mut cpu, mut bus) = setup_cpu_at(0x8000);
+        cpu.sp = 0x00; // Only 1 byte of room before wrap
+
+        cpu.push_u16(&mut bus, 0x1234);
+
+        // High byte pushed first: at $0100 (sp was 0x00)
+        assert_eq!(bus.mem[0x0100], 0x12);
+        // Low byte pushed next: at $01FF (sp wrapped to 0xFF)
+        assert_eq!(bus.mem[0x01FF], 0x34);
+        assert_eq!(cpu.sp, 0xFE);
+
+        let val = cpu.pop_u16(&mut bus);
+        assert_eq!(val, 0x1234);
+    }
+
+    // ---------------------------------------------------------------
+    // CMP / CPX / CPY flag edge cases
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_cmp_equal_sets_zero_and_carry() {
+        let (mut cpu, mut bus) = setup_cpu_at(0x8000);
+        cpu.a = 0x42;
+        bus.mem[0x8000] = 0xC9; // CMP #imm
+        bus.mem[0x8001] = 0x42;
+        cpu.step(&mut bus);
+
+        assert!(cpu.status & ZERO != 0, "Z flag should be set when A == M");
+        assert!(cpu.status & CARRY != 0, "C flag should be set when A >= M");
+        assert!(cpu.status & NEGATIVE == 0, "N flag should be clear for zero result");
+    }
+
+    #[test]
+    fn test_cmp_greater_sets_carry_clears_zero() {
+        let (mut cpu, mut bus) = setup_cpu_at(0x8000);
+        cpu.a = 0x80;
+        bus.mem[0x8000] = 0xC9; // CMP #imm
+        bus.mem[0x8001] = 0x01;
+        cpu.step(&mut bus);
+
+        assert!(cpu.status & ZERO == 0, "Z flag should be clear");
+        assert!(cpu.status & CARRY != 0, "C flag should be set when A > M");
+        assert!(cpu.status & NEGATIVE == 0, "N flag should be clear: (0x80 - 0x01) = 0x7F");
+    }
+
+    #[test]
+    fn test_cmp_less_clears_carry() {
+        let (mut cpu, mut bus) = setup_cpu_at(0x8000);
+        cpu.a = 0x01;
+        bus.mem[0x8000] = 0xC9; // CMP #imm
+        bus.mem[0x8001] = 0x80;
+        cpu.step(&mut bus);
+
+        assert!(cpu.status & CARRY == 0, "C flag should be clear when A < M");
+        assert!(cpu.status & ZERO == 0, "Z flag should be clear");
+        assert!(cpu.status & NEGATIVE != 0, "N flag set because (0x01 - 0x80) = 0x81");
+    }
+
+    #[test]
+    fn test_cpx_immediate() {
+        let (mut cpu, mut bus) = setup_cpu_at(0x8000);
+        cpu.x = 0x10;
+        bus.mem[0x8000] = 0xE0; // CPX #imm
+        bus.mem[0x8001] = 0x10;
+        cpu.step(&mut bus);
+
+        assert!(cpu.status & ZERO != 0, "Z should be set for CPX when X == M");
+        assert!(cpu.status & CARRY != 0, "C should be set for CPX when X >= M");
+    }
+
+    #[test]
+    fn test_cpy_immediate() {
+        let (mut cpu, mut bus) = setup_cpu_at(0x8000);
+        cpu.y = 0xFF;
+        bus.mem[0x8000] = 0xC0; // CPY #imm
+        bus.mem[0x8001] = 0x01;
+        cpu.step(&mut bus);
+
+        assert!(cpu.status & ZERO == 0, "Z should be clear");
+        assert!(cpu.status & CARRY != 0, "C should be set when Y > M");
+        assert!(cpu.status & NEGATIVE != 0, "N should be set (0xFF - 0x01 = 0xFE)");
+    }
+
+    #[test]
+    fn test_cmp_zero_minus_one() {
+        // CMP: A=0x00, M=0x01 → result = 0xFF, C=0, N=1, Z=0
+        let (mut cpu, mut bus) = setup_cpu_at(0x8000);
+        cpu.a = 0x00;
+        bus.mem[0x8000] = 0xC9; // CMP #imm
+        bus.mem[0x8001] = 0x01;
+        cpu.step(&mut bus);
+
+        assert!(cpu.status & CARRY == 0, "C clear when A < M");
+        assert!(cpu.status & NEGATIVE != 0, "N set for 0xFF result");
+        assert!(cpu.status & ZERO == 0, "Z clear");
+    }
+
+    // ---------------------------------------------------------------
+    // Addressing modes
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_zero_page_addressing() {
+        let (mut cpu, mut bus) = setup_cpu_at(0x8000);
+        // LDA $42 (zero page)
+        bus.mem[0x0042] = 0xAB;
+        bus.mem[0x8000] = 0xA5; // LDA zp
+        bus.mem[0x8001] = 0x42;
+        cpu.step(&mut bus);
+
+        assert_eq!(cpu.a, 0xAB);
+        assert_eq!(cpu.pc, 0x8002);
+    }
+
+    #[test]
+    fn test_zero_page_x_wraps_at_page_boundary() {
+        let (mut cpu, mut bus) = setup_cpu_at(0x8000);
+        // LDA $FF,X with X=$05 should wrap to address $04, not $0104
+        cpu.x = 0x05;
+        bus.mem[0x0004] = 0xCD; // (0xFF + 0x05) & 0xFF = 0x04
+        bus.mem[0x0104] = 0x99; // Wrong address if no wrapping
+        bus.mem[0x8000] = 0xB5; // LDA zp,X
+        bus.mem[0x8001] = 0xFF;
+        cpu.step(&mut bus);
+
+        assert_eq!(cpu.a, 0xCD, "Zero page X should wrap within page zero");
+        assert_eq!(cpu.pc, 0x8002);
+    }
+
+    #[test]
+    fn test_absolute_x_page_crossing_extra_cycle() {
+        let (mut cpu, mut bus) = setup_cpu_at(0x8000);
+        // LDA $10F0,X with X=$20 → address $1110, crosses page boundary
+        cpu.x = 0x20;
+        bus.mem[0x1110] = 0x77;
+        bus.mem[0x8000] = 0xBD; // LDA abs,X
+        bus.mem[0x8001] = 0xF0;
+        bus.mem[0x8002] = 0x10;
+        let cycles = cpu.step(&mut bus);
+
+        assert_eq!(cpu.a, 0x77);
+        assert_eq!(cycles, 5, "LDA abs,X with page cross should take 4+1=5 cycles");
+    }
+
+    #[test]
+    fn test_absolute_x_no_page_crossing() {
+        let (mut cpu, mut bus) = setup_cpu_at(0x8000);
+        // LDA $1000,X with X=$05 → address $1005, no page cross
+        cpu.x = 0x05;
+        bus.mem[0x1005] = 0x88;
+        bus.mem[0x8000] = 0xBD; // LDA abs,X
+        bus.mem[0x8001] = 0x00;
+        bus.mem[0x8002] = 0x10;
+        let cycles = cpu.step(&mut bus);
+
+        assert_eq!(cpu.a, 0x88);
+        assert_eq!(cycles, 4, "LDA abs,X without page cross should take 4 cycles");
+    }
+}

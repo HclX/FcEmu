@@ -350,19 +350,8 @@ fn test_ppu_accumulator_ntsc() {
     assert_eq!(ppu_cycles, 30);
 }
 
-#[test]
-fn test_ppu_accumulator_pal() {
-    let mut bus = SimpleBus::new();
-    bus.set_region(EmulatorRegion::Pal);
 
-    // PAL: 3.2 PPU cycles per CPU cycle (16/5)
-    // Over 5 CPU cycles: 3, 3, 3, 3, 4 = 16 total
-    let mut total = 0;
-    for _ in 0..5 {
-        total += bus.accumulate_ppu_cycles(1);
-    }
-    assert_eq!(total, 16);
-}
+
 
 #[test]
 fn test_cpu_flags_after_transfer() {

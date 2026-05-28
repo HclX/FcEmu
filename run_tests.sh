@@ -10,9 +10,9 @@ RED='\033[0;31m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-echo -e "${YELLOW}====================================================="
-echo "          FcEmu Master Test Suite Execution"
-echo -e "=====================================================${NC}"
+echo -e "${YELLOW}=====================================================
+          FcEmu Master Test Suite Execution
+=====================================================${NC}"
 
 # Step 1: Run Cargo unit tests
 echo -e "\n${YELLOW}[Step 1/6] Running Rust Core Unit Tests...${NC}"
@@ -34,19 +34,18 @@ fi
 
 python3 tests/verify_blargg_runner.py
 
-# Step 4: Run Nova the Squirrel Visual Golden MD5 Verification Harness
-echo -e "\n${YELLOW}[Step 4/6] Executing Nova the Squirrel Visual Golden Harness...${NC}"
-python3 tests/verify_squirrel.py
+# Step 4: Run Unified Golden Image Verification Harness
+echo -e "\n${YELLOW}[Step 4/6] Executing Unified Golden Image Verification Harness...${NC}"
+python3 tests/verify_golden_images.py
 
-# Step 5: Run NEStress & Flappy PAL Visual Golden MD5 Verification Harnesses
-echo -e "\n${YELLOW}[Step 5/6] Executing Visual Golden Harnesses (NEStress & Flappy PAL)...${NC}"
-python3 tests/verify_nestress.py
-python3 tests/verify_flappy_pal.py
+# Step 5: Run E2E Test Runner Harness
+echo -e "\n${YELLOW}[Step 5/6] Executing E2E Test Runner Harness...${NC}"
+python3 tests/e2e_runner.py
 
 # Step 6: Run Parallel Compatibility Explorer (Unified Blargg + Checksum PAL APU)
 echo -e "\n${YELLOW}[Step 6/6] Executing Parallel Compatibility Explorer...${NC}"
 python3 tests/run_all_external_tests.py
 
-echo -e "\n${GREEN}====================================================="
-echo " 🎉 SUCCESS: ALL FCEMU MASTER 6-STEP TEST SUITES PASSED!"
-echo -e "=====================================================${NC}"
+echo -e "\n${GREEN}=====================================================
+ 🎉 SUCCESS: ALL FCEMU MASTER 6-STEP TEST SUITES PASSED!
+=====================================================${NC}"
