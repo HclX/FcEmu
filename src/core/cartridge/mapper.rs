@@ -778,6 +778,210 @@ mod tests {
         assert_eq!(mapper.mirroring_select, 1);
         assert_eq!(mapper.mirroring(), Some(MirroringMode::SingleScreenUpper));
     }
+
+    // ── Mapper Save/Load Round-Trip Tests ─────────────────────────────
+
+    #[test]
+    fn test_mapper0_save_load_roundtrip() {
+        let mapper = Mapper0::new(2, 1);
+        let state = mapper.save_state();
+        // Mapper0 has no mutable state, so save_state returns empty vec
+        assert!(state.is_empty(), "Mapper0 has no state to save");
+
+        // load_state with empty data should be a no-op
+        let mut mapper2 = Mapper0::new(2, 1);
+        mapper2.load_state(&state);
+        // Verify mapping is identical
+        assert_eq!(mapper.map_cpu_read(0x8000), mapper2.map_cpu_read(0x8000));
+        assert_eq!(mapper.map_cpu_read(0xFFFF), mapper2.map_cpu_read(0xFFFF));
+        assert_eq!(mapper.map_ppu_read(0x0000), mapper2.map_ppu_read(0x0000));
+    }
+
+    #[test]
+    fn test_mapper1_save_load_roundtrip() {
+        let mut mapper = Mapper1::new(8, 4);
+        // Perform some bank switches
+        // Write 0x05 to PRG bank register (5 serial writes to $E000)
+        mapper.map_cpu_write(0xE000, 0x01);
+        mapper.map_cpu_write(0xE000, 0x00);
+        mapper.map_cpu_write(0xE000, 0x01);
+        mapper.map_cpu_write(0xE000, 0x00);
+        mapper.map_cpu_write(0xE000, 0x00);
+        // Write 0x03 to CHR bank 0 ($A000)
+        mapper.map_cpu_write(0xA000, 0x01);
+        mapper.map_cpu_write(0xA000, 0x01);
+        mapper.map_cpu_write(0xA000, 0x00);
+        mapper.map_cpu_write(0xA000, 0x00);
+        mapper.map_cpu_write(0xA000, 0x00);
+
+        let state = mapper.save_state();
+        assert_eq!(state.len(), 7);
+
+        let mut mapper2 = Mapper1::new(8, 4);
+        mapper2.load_state(&state);
+
+        // Verify all state fields match
+        assert_eq!(mapper.shift_reg, mapper2.shift_reg);
+        assert_eq!(mapper.write_count, mapper2.write_count);
+        assert_eq!(mapper.control, mapper2.control);
+        assert_eq!(mapper.chr_bank_0, mapper2.chr_bank_0);
+        assert_eq!(mapper.chr_bank_1, mapper2.chr_bank_1);
+        assert_eq!(mapper.prg_bank, mapper2.prg_bank);
+        assert_eq!(mapper.prg_ram_enabled, mapper2.prg_ram_enabled);
+
+        // Verify mapping is identical
+        assert_eq!(mapper.map_cpu_read(0x8000), mapper2.map_cpu_read(0x8000));
+        assert_eq!(mapper.map_cpu_read(0xC000), mapper2.map_cpu_read(0xC000));
+        assert_eq!(mapper.map_ppu_read(0x0000), mapper2.map_ppu_read(0x0000));
+        assert_eq!(mapper.map_ppu_read(0x1000), mapper2.map_ppu_read(0x1000));
+        assert_eq!(mapper.mirroring(), mapper2.mirroring());
+    }
+
+    #[test]
+    fn test_mapper2_save_load_roundtrip() {
+        let mut mapper = Mapper2::new(8, 0);
+        mapper.map_cpu_write(0x8000, 5); // select bank 5
+
+        let state = mapper.save_state();
+        assert_eq!(state.len(), 1);
+        assert_eq!(state[0], 5);
+
+        let mut mapper2 = Mapper2::new(8, 0);
+        mapper2.load_state(&state);
+        assert_eq!(mapper2.prg_bank, 5);
+
+        // Verify mapping is identical
+        assert_eq!(mapper.map_cpu_read(0x8000), mapper2.map_cpu_read(0x8000));
+        assert_eq!(mapper.map_cpu_read(0xC000), mapper2.map_cpu_read(0xC000));
+    }
+
+    #[test]
+    fn test_mapper3_save_load_roundtrip() {
+        let mut mapper = Mapper3::new(1, 4);
+        mapper.map_cpu_write(0x8000, 2); // select CHR bank 2
+
+        let state = mapper.save_state();
+        assert_eq!(state.len(), 1);
+        assert_eq!(state[0], 2);
+
+        let mut mapper2 = Mapper3::new(1, 4);
+        mapper2.load_state(&state);
+        assert_eq!(mapper2.chr_bank, 2);
+
+        assert_eq!(mapper.map_ppu_read(0x0000), mapper2.map_ppu_read(0x0000));
+        assert_eq!(mapper.map_ppu_read(0x1FFF), mapper2.map_ppu_read(0x1FFF));
+    }
+
+    #[test]
+    fn test_mapper7_save_load_roundtrip() {
+        let mut mapper = Mapper7::new(16, 0);
+        mapper.map_cpu_write(0x8000, 0x15); // bank 5, upper screen mirroring
+
+        let state = mapper.save_state();
+        assert_eq!(state.len(), 2);
+
+        let mut mapper2 = Mapper7::new(16, 0);
+        mapper2.load_state(&state);
+        assert_eq!(mapper2.prg_bank, 5);
+        assert_eq!(mapper2.mirroring_select, 1);
+
+        assert_eq!(mapper.map_cpu_read(0x8000), mapper2.map_cpu_read(0x8000));
+        assert_eq!(mapper.mirroring(), mapper2.mirroring());
+    }
+
+    #[test]
+    fn test_mapper30_save_load_roundtrip() {
+        let mut mapper = Mapper30::new(32, 0, MirroringMode::Horizontal);
+        mapper.map_cpu_write(0x8000, 0x65); // prg=5, chr=3, mirror=0
+
+        let state = mapper.save_state();
+        assert_eq!(state.len(), 3);
+
+        let mut mapper2 = Mapper30::new(32, 0, MirroringMode::Horizontal);
+        mapper2.load_state(&state);
+        assert_eq!(mapper2.prg_bank, 5);
+        assert_eq!(mapper2.chr_bank, 3);
+        assert_eq!(mapper2.mirroring_select, 0);
+
+        assert_eq!(mapper.map_cpu_read(0x8000), mapper2.map_cpu_read(0x8000));
+        assert_eq!(mapper.map_ppu_read(0x0000), mapper2.map_ppu_read(0x0000));
+        assert_eq!(mapper.mirroring(), mapper2.mirroring());
+    }
+
+    #[test]
+    fn test_mapper34_save_load_roundtrip() {
+        let mut mapper = Mapper34::new(32, 2); // NINA mode
+        mapper.map_cpu_write(0x7FFD, 3);  // PRG bank 3
+        mapper.map_cpu_write(0x7FFE, 1);  // CHR bank 0 = 1
+        mapper.map_cpu_write(0x7FFF, 2);  // CHR bank 1 = 2
+
+        let state = mapper.save_state();
+        assert_eq!(state.len(), 3);
+
+        let mut mapper2 = Mapper34::new(32, 2);
+        mapper2.load_state(&state);
+        assert_eq!(mapper2.prg_bank, 3);
+        assert_eq!(mapper2.chr_bank_0, 1);
+        assert_eq!(mapper2.chr_bank_1, 2);
+
+        assert_eq!(mapper.map_cpu_read(0x8000), mapper2.map_cpu_read(0x8000));
+        assert_eq!(mapper.map_ppu_read(0x0000), mapper2.map_ppu_read(0x0000));
+        assert_eq!(mapper.map_ppu_read(0x1000), mapper2.map_ppu_read(0x1000));
+    }
+
+    #[test]
+    fn test_mapper227_save_load_roundtrip() {
+        let mut mapper = Mapper227::new(32, 0);
+        mapper.map_cpu_write(0x820C, 0); // UNROM mode, inner bank 3
+
+        let state = mapper.save_state();
+        assert_eq!(state.len(), 2);
+
+        let mut mapper2 = Mapper227::new(32, 0);
+        mapper2.load_state(&state);
+
+        assert_eq!(mapper.map_cpu_read(0x8000), mapper2.map_cpu_read(0x8000));
+        assert_eq!(mapper.map_cpu_read(0xC000), mapper2.map_cpu_read(0xC000));
+        assert_eq!(mapper.mirroring(), mapper2.mirroring());
+    }
+
+    #[test]
+    fn test_mapper_save_load_preserves_mapping_after_modification() {
+        // Test that saving state mid-operation, then loading into a fresh mapper,
+        // produces identical read mappings
+        let mut original = Mapper1::new(8, 4);
+
+        // Configure a specific state: control=0x1E, chr_bank_0=0x05
+        // Write control register ($8000-$9FFF): 0x1E = 11110
+        original.map_cpu_write(0x8000, 0x00); // bit 0
+        original.map_cpu_write(0x8000, 0x01); // bit 1
+        original.map_cpu_write(0x8000, 0x01); // bit 2
+        original.map_cpu_write(0x8000, 0x01); // bit 3
+        original.map_cpu_write(0x8000, 0x01); // bit 4
+
+        let state = original.save_state();
+
+        let mut restored = Mapper1::new(8, 4);
+        restored.load_state(&state);
+
+        // Check all possible address ranges
+        for addr in (0x8000..=0xFFFFu16).step_by(0x1000) {
+            assert_eq!(
+                original.map_cpu_read(addr),
+                restored.map_cpu_read(addr),
+                "CPU read mapping diverged at addr {:#06X}",
+                addr
+            );
+        }
+        for addr in (0x0000..0x2000u16).step_by(0x400) {
+            assert_eq!(
+                original.map_ppu_read(addr),
+                restored.map_ppu_read(addr),
+                "PPU read mapping diverged at addr {:#06X}",
+                addr
+            );
+        }
+    }
 }
 
 /// Mapper30 (UNROM 512) mapping logic.

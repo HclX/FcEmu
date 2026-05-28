@@ -338,8 +338,8 @@ mod tests {
     /// Helper: create a PPU positioned on a visible scanline/cycle with rendering enabled.
     fn make_render_ppu() -> Ppu {
         let mut ppu = Ppu::new();
-        // Enable background + sprites (PPUMASK bits 3,4)
-        ppu.mask = 0x18;
+        // Enable background + sprites (PPUMASK bits 3,4) and show left column (bits 1,2)
+        ppu.mask = 0x1E;
         // Position on visible scanline 100, cycle 1 (first visible pixel)
         ppu.scanline = 100;
         ppu.cycle = 1;
@@ -368,14 +368,15 @@ mod tests {
         // Place 9 sprites all visible on scanline 100.
         // OAM Y value = scanline - 1 = 99 (sprite appears at Y+1 = 100).
         for i in 0..9 {
-            place_sprite(&mut ppu, i, scanline - 1, 0, 0, (i * 10) as u8);
+            place_sprite(&mut ppu, i, scanline - 1, 0, 0, 0);
         }
         // Make all sprite tiles opaque (all 1s in pattern planes)
         // Tile 0 at pattern base 0x0000: low plane at fine_y=0 -> addr 0x0000, high plane at 0x0008
         bus.pattern[0x0000] = 0xFF;
         bus.pattern[0x0008] = 0xFF;
         // Fill sprite palette so opaque pixels have a visible color
-        ppu.palette_ram[0x11 & 0x1F] = 0x15;
+        // Sprite palette: base 0x3F10, pal 0, color 3 -> addr 0x3F13, index = 0x13 & 0x1F = 0x13
+        ppu.palette_ram[0x13] = 0x15;
 
         // Ensure overflow flag is clear before rendering
         assert_eq!(ppu.status & 0x20, 0, "overflow flag should be clear initially");
@@ -394,11 +395,11 @@ mod tests {
         let scanline = ppu.scanline as u8;
         // Place exactly 8 sprites on the scanline
         for i in 0..8 {
-            place_sprite(&mut ppu, i, scanline - 1, 0, 0, (i * 10) as u8);
+            place_sprite(&mut ppu, i, scanline - 1, 0, 0, 0);
         }
         bus.pattern[0x0000] = 0xFF;
         bus.pattern[0x0008] = 0xFF;
-        ppu.palette_ram[0x11 & 0x1F] = 0x15;
+        ppu.palette_ram[0x13] = 0x15;
 
         ppu.render_pixel(&mut bus);
 
@@ -414,30 +415,28 @@ mod tests {
 
         let scanline = ppu.scanline as u8;
         // Place sprite 0 at x=0 on the current scanline
-        place_sprite(&mut ppu, 0, scanline - 1, 0, 0, 0);
+        // Use tile 2 for sprite so it doesn't collide with BG tile
+        place_sprite(&mut ppu, 0, scanline - 1, 2, 0, 0);
 
-        // Make sprite tile opaque
-        bus.pattern[0x0000] = 0xFF;
-        bus.pattern[0x0008] = 0xFF;
-        ppu.palette_ram[0x11 & 0x1F] = 0x15;
+        // Make sprite tile 2 opaque
+        // Sprite pattern base: ctrl & 0x08 = 0 -> base 0x0000
+        // Tile 2 pattern: addr = 0x0000 + 2*16 = 0x0020
+        bus.pattern[0x0020] = 0xFF; // low plane at fine_y=0
+        bus.pattern[0x0028] = 0xFF; // high plane at fine_y=0
+        // Sprite palette: base 0x3F10, palette 0, color index 3 -> 0x3F13
+        ppu.palette_ram[0x13] = 0x15;
 
-        // Make background opaque: write nametable tile index and pattern data
-        // BG pattern base: PPUCTRL bit 4 = 0 -> base 0x0000 (same tile 0)
-        // Nametable at $2000 for tile at coarse_x=0, coarse_y=0 -> offset 0
-        // v register must point to the right tile. Set v = 0 (coarse_x=0, coarse_y=0, fine_y=0, nt=0)
-        ppu.v = 0;
-        // But scanline is 100 so we need fine_y and coarse_y to match.
-        // For simplicity, set v so fine_y=0, coarse_y=0 (the render code reads from v directly)
-        // We need the tile in nametable to point to a valid pattern
-        // Nametable addr = 0x2000 + 0 = 0x2000, tile index = 1
-        bus.nametable[0] = 1;
-        // Tile 1 pattern: base 0x0000 + 1*16 = 0x0010
+        // Make background opaque using tile 1
+        ppu.v = 0; // coarse_x=0, coarse_y=0, fine_y=0, nt=0
+        bus.nametable[0] = 1; // tile index 1
+        // BG pattern base: ctrl & 0x10 = 0 -> base 0x0000
+        // Tile 1 pattern: addr = 0x0000 + 1*16 = 0x0010
         bus.pattern[0x0010] = 0xFF; // low plane
         bus.pattern[0x0018] = 0xFF; // high plane
-        // BG palette: palette index 3, palette_ram[3] needs a color
-        // attr byte at nt_base + 0x3C0 + 0 = 0x3C0
-        bus.nametable[0x3C0] = 0xFF; // all palette group 3
-        ppu.palette_ram[0x0F & 0x1F] = 0x20; // bg palette entry
+        // Attribute byte: nt_base(0x2000) + 0x3C0 = 0x23C0. Mock nametable index = 0x3C0
+        bus.nametable[0x3C0] = 0x00; // palette group 0
+        // BG palette group 0, color index 3 -> palette_ram addr = 0x3F00 + 0*4 + 3 = 0x3F03 -> index 3
+        ppu.palette_ram[3] = 0x20;
 
         // Clear sprite 0 hit flag
         ppu.status &= !0x40;
@@ -454,19 +453,19 @@ mod tests {
 
         let scanline = ppu.scanline as u8;
         // Place sprite 0 at x=248, so pixel x=255 is within sprite range (248..256)
-        place_sprite(&mut ppu, 0, scanline - 1, 0, 0, 248);
+        place_sprite(&mut ppu, 0, scanline - 1, 2, 0, 248);
 
-        bus.pattern[0x0000] = 0xFF;
-        bus.pattern[0x0008] = 0xFF;
-        ppu.palette_ram[0x11 & 0x1F] = 0x15;
+        bus.pattern[0x0020] = 0xFF;
+        bus.pattern[0x0028] = 0xFF;
+        ppu.palette_ram[0x13] = 0x15;
 
         // Set up opaque BG
         ppu.v = 0;
         bus.nametable[0] = 1;
         bus.pattern[0x0010] = 0xFF;
         bus.pattern[0x0018] = 0xFF;
-        bus.nametable[0x3C0] = 0xFF;
-        ppu.palette_ram[0x0F & 0x1F] = 0x20;
+        bus.nametable[0x3C0] = 0x00;
+        ppu.palette_ram[3] = 0x20;
 
         // Position at cycle 256 -> pixel x = 255
         ppu.cycle = 256;
@@ -487,22 +486,22 @@ mod tests {
 
         let scanline = ppu.scanline as u8;
         // Place sprite 0 with priority bit set (behind BG): attr bit 5 = 0x20
-        place_sprite(&mut ppu, 0, scanline - 1, 0, 0x20, 0);
+        place_sprite(&mut ppu, 0, scanline - 1, 2, 0x20, 0);
 
-        // Opaque sprite
-        bus.pattern[0x0000] = 0xFF;
-        bus.pattern[0x0008] = 0xFF;
+        // Opaque sprite (tile 2)
+        bus.pattern[0x0020] = 0xFF;
+        bus.pattern[0x0028] = 0xFF;
         let sprite_color: u8 = 0x16;
-        ppu.palette_ram[0x13 & 0x1F] = sprite_color; // sprite palette entry (pal 0, color 3)
+        ppu.palette_ram[0x13] = sprite_color; // sprite palette: pal 0, color 3 -> index 0x13
 
-        // Opaque BG
+        // Opaque BG (tile 1)
         ppu.v = 0;
         bus.nametable[0] = 1;
         bus.pattern[0x0010] = 0xFF;
         bus.pattern[0x0018] = 0xFF;
-        bus.nametable[0x3C0] = 0xFF;
+        bus.nametable[0x3C0] = 0x00; // palette group 0
         let bg_color: u8 = 0x30;
-        ppu.palette_ram[0x0F & 0x1F] = bg_color;
+        ppu.palette_ram[3] = bg_color; // BG palette group 0, color 3 -> index 3
 
         ppu.render_pixel(&mut bus);
 
@@ -520,22 +519,22 @@ mod tests {
 
         let scanline = ppu.scanline as u8;
         // Place sprite 0 with priority=0 (in front of BG): attr = 0x00
-        place_sprite(&mut ppu, 0, scanline - 1, 0, 0x00, 0);
+        place_sprite(&mut ppu, 0, scanline - 1, 2, 0x00, 0);
 
-        // Opaque sprite
-        bus.pattern[0x0000] = 0xFF;
-        bus.pattern[0x0008] = 0xFF;
+        // Opaque sprite (tile 2)
+        bus.pattern[0x0020] = 0xFF;
+        bus.pattern[0x0028] = 0xFF;
         let sprite_color: u8 = 0x16;
-        ppu.palette_ram[0x13 & 0x1F] = sprite_color;
+        ppu.palette_ram[0x13] = sprite_color; // sprite palette: pal 0, color 3 -> index 0x13
 
-        // Opaque BG
+        // Opaque BG (tile 1)
         ppu.v = 0;
         bus.nametable[0] = 1;
         bus.pattern[0x0010] = 0xFF;
         bus.pattern[0x0018] = 0xFF;
-        bus.nametable[0x3C0] = 0xFF;
+        bus.nametable[0x3C0] = 0x00; // palette group 0
         let bg_color: u8 = 0x30;
-        ppu.palette_ram[0x0F & 0x1F] = bg_color;
+        ppu.palette_ram[3] = bg_color; // BG palette group 0, color 3 -> index 3
 
         ppu.render_pixel(&mut bus);
 
@@ -553,8 +552,8 @@ mod tests {
         let mut ppu = make_render_ppu();
         let mut bus = MockPpuBus::new();
 
-        // Disable sprites to test BG alone
-        ppu.mask = 0x08;
+        // Disable sprites, enable BG + show left column
+        ppu.mask = 0x0A; // bits 1 (show left BG) + 3 (show BG)
 
         // Set up a BG tile where only bit 7 of low plane is set (leftmost pixel)
         ppu.v = 0;
@@ -656,11 +655,15 @@ mod tests {
         ppu.status = 0x80 | 0x40 | 0x20; // VBlank + Sprite0 Hit + Overflow
         ppu.nmi_asserted = true;
 
-        // Position at pre-render scanline, cycle 0 (one step to reach cycle 1)
+        // Position at pre-render scanline, cycle 0.
+        // The flag-clear check runs BEFORE the cycle increment (checks cycle==1),
+        // so we need to step twice: step at cycle=0 increments to 1,
+        // step at cycle=1 sees the check and clears flags.
         ppu.scanline = NTSC_TIMING.pre_render_scanline;
         ppu.cycle = 0;
 
-        ppu.step(&mut bus);
+        ppu.step(&mut bus); // cycle 0 -> processes cycle 0, increments to 1
+        ppu.step(&mut bus); // cycle 1 -> flag clear triggers, increments to 2
 
         // After cycle 1 of pre-render scanline, flags should be cleared
         assert_eq!(ppu.status & 0x80, 0, "VBlank flag should be cleared");

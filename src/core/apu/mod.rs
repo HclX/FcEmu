@@ -1022,4 +1022,184 @@ mod tests {
         assert_eq!(apu.pulse2.sweep.shift, 3);
         assert!(apu.pulse2.sweep.reload);
     }
+
+    // ── DMC Sample Countdown and Completion ─────────────────────────
+
+    #[test]
+    fn test_dmc_sample_countdown_to_completion() {
+        let mut apu = Apu::new();
+
+        // Configure DMC: rate=428, sample_length=1 byte, no loop, no IRQ
+        apu.dmc_rate = 428;
+        apu.dmc_sample_length = 1;
+        apu.dmc_loop = false;
+        apu.dmc_irq_enable = false;
+
+        // Enable DMC via $4015
+        apu.write_reg(0x4015, 0x10);
+        assert!(apu.dmc_active, "DMC should be active after enabling");
+        assert_eq!(apu.dmc_bytes_remaining, 1, "should have 1 byte remaining");
+
+        // Tick enough cycles to consume the 1-byte sample
+        // cycles_per_byte = rate * 8 = 428 * 8 = 3424
+        apu.tick(3424);
+
+        assert!(!apu.dmc_active, "DMC should become inactive after consuming all bytes");
+        assert_eq!(apu.dmc_bytes_remaining, 0);
+    }
+
+    #[test]
+    fn test_dmc_multi_byte_countdown() {
+        let mut apu = Apu::new();
+
+        apu.dmc_rate = 428;
+        // Set sample length via $4013: length = val*16+1
+        apu.write_reg(0x4013, 0x01); // length = 1*16+1 = 17
+        apu.dmc_loop = false;
+        apu.dmc_irq_enable = false;
+
+        apu.write_reg(0x4015, 0x10);
+        assert_eq!(apu.dmc_bytes_remaining, 17);
+
+        // Tick enough for 1 byte
+        apu.tick(3424);
+        assert_eq!(apu.dmc_bytes_remaining, 16, "should have consumed 1 byte");
+        assert!(apu.dmc_active);
+    }
+
+    // ── DMC Loop Restart Behavior ───────────────────────────────────
+
+    #[test]
+    fn test_dmc_loop_restarts_sample() {
+        let mut apu = Apu::new();
+
+        apu.dmc_rate = 428;
+        apu.dmc_sample_length = 1;
+        apu.dmc_loop = true;
+        apu.dmc_irq_enable = false;
+
+        apu.write_reg(0x4015, 0x10);
+        assert_eq!(apu.dmc_bytes_remaining, 1);
+
+        // Consume the 1-byte sample
+        apu.tick(3424);
+
+        // With loop enabled, bytes_remaining should reload to sample_length
+        assert!(apu.dmc_active, "DMC should remain active when looping");
+        assert_eq!(apu.dmc_bytes_remaining, 1, "bytes_remaining should reload on loop");
+    }
+
+    #[test]
+    fn test_dmc_loop_does_not_assert_irq() {
+        let mut apu = Apu::new();
+
+        apu.dmc_rate = 428;
+        apu.dmc_sample_length = 1;
+        apu.dmc_loop = true;
+        apu.dmc_irq_enable = true;
+
+        apu.write_reg(0x4015, 0x10);
+        apu.tick(3424);
+
+        // Even with IRQ enabled, looping should NOT assert IRQ
+        assert!(!apu.dmc_irq_pending, "DMC IRQ should not fire when loop causes restart");
+    }
+
+    // ── DMC IRQ Assertion ───────────────────────────────────────────
+
+    #[test]
+    fn test_dmc_irq_asserted_on_completion() {
+        let mut apu = Apu::new();
+
+        apu.dmc_rate = 428;
+        apu.dmc_sample_length = 1;
+        apu.dmc_loop = false;
+        apu.dmc_irq_enable = true;
+
+        apu.write_reg(0x4015, 0x10);
+        apu.tick(3424);
+
+        assert!(apu.dmc_irq_pending, "DMC IRQ should be asserted on sample completion");
+        assert!(!apu.dmc_active);
+    }
+
+    #[test]
+    fn test_dmc_irq_not_asserted_when_disabled() {
+        let mut apu = Apu::new();
+
+        apu.dmc_rate = 428;
+        apu.dmc_sample_length = 1;
+        apu.dmc_loop = false;
+        apu.dmc_irq_enable = false;
+
+        apu.write_reg(0x4015, 0x10);
+        apu.tick(3424);
+
+        assert!(!apu.dmc_irq_pending, "DMC IRQ should NOT fire when irq_enable is false");
+    }
+
+    #[test]
+    fn test_dmc_irq_cleared_by_4015_write() {
+        let mut apu = Apu::new();
+
+        apu.dmc_irq_pending = true;
+
+        // Writing $4015 should clear DMC IRQ
+        apu.write_reg(0x4015, 0x00);
+        assert!(!apu.dmc_irq_pending, "DMC IRQ should be cleared by any $4015 write");
+    }
+
+    #[test]
+    fn test_dmc_irq_reported_in_status() {
+        let mut apu = Apu::new();
+
+        apu.dmc_irq_pending = true;
+
+        let status = apu.read_reg(0x4015);
+        assert_ne!(status & 0x80, 0, "bit 7 of $4015 should reflect DMC IRQ pending");
+    }
+
+    // ── DMC Rate Table Selection ────────────────────────────────────
+
+    #[test]
+    fn test_dmc_rate_table_selection_via_4010() {
+        let mut apu = Apu::new();
+
+        // Write $4010 with rate index 0 -> rate = 428 (NTSC default table[0])
+        apu.write_reg(0x4010, 0x00);
+        assert_eq!(apu.dmc_rate, NTSC_TIMING.dmc_rate_table[0]);
+
+        // Rate index 0x0F -> last entry
+        apu.write_reg(0x4010, 0x0F);
+        assert_eq!(apu.dmc_rate, NTSC_TIMING.dmc_rate_table[15]);
+
+        // Rate index 7 (mid-table)
+        apu.write_reg(0x4010, 0x07);
+        assert_eq!(apu.dmc_rate, NTSC_TIMING.dmc_rate_table[7]);
+    }
+
+    #[test]
+    fn test_dmc_4010_controls_irq_and_loop_flags() {
+        let mut apu = Apu::new();
+
+        // bit 7 = IRQ enable, bit 6 = loop
+        apu.write_reg(0x4010, 0xC0); // IRQ=1, Loop=1, rate index=0
+        assert!(apu.dmc_irq_enable);
+        assert!(apu.dmc_loop);
+
+        apu.write_reg(0x4010, 0x00); // IRQ=0, Loop=0
+        assert!(!apu.dmc_irq_enable);
+        assert!(!apu.dmc_loop);
+    }
+
+    #[test]
+    fn test_dmc_disabling_irq_via_4010_clears_pending() {
+        let mut apu = Apu::new();
+
+        apu.dmc_irq_pending = true;
+
+        // Writing $4010 with bit 7 = 0 should clear dmc_irq_pending
+        apu.write_reg(0x4010, 0x00);
+        assert!(!apu.dmc_irq_pending, "disabling DMC IRQ via $4010 should clear pending flag");
+    }
 }
