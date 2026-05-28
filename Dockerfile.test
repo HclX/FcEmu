@@ -1,0 +1,31 @@
+# Multi-stage Dockerfile for FcEmu browser testing
+# Stage 1: Build WASM with Rust
+FROM rust:1.87-bookworm AS wasm-builder
+
+RUN curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+RUN rustup target add wasm32-unknown-unknown
+
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY src/ src/
+
+RUN wasm-pack build --target web --out-dir static/pkg
+
+# Stage 2: Run Playwright tests
+FROM mcr.microsoft.com/playwright:v1.60.0-jammy
+
+WORKDIR /app
+
+# Copy project files needed for testing
+COPY package.json playwright.config.js vite.config.js ./
+COPY static/ static/
+COPY tests/test_*.js tests/
+
+# Copy WASM build output from stage 1
+COPY --from=wasm-builder /app/static/pkg/ static/pkg/
+
+# Install Node dependencies
+RUN npm install
+
+# Run tests
+CMD ["npx", "playwright", "test"]

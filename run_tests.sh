@@ -46,36 +46,26 @@ python3 tests/verify_nestest_trace.py
 echo -e "\n${YELLOW}[Step 6/7] Executing Parallel Compatibility Explorer...${NC}"
 python3 tests/run_all_external_tests.py
 
-# Step 7: Run Playwright Browser Tests (requires wasm-pack + Node.js)
+# Step 7: Run Playwright Browser Tests (via Docker — no local Node.js required)
 echo -e "\n${YELLOW}[Step 7/7] Executing Playwright Browser Tests...${NC}"
-if ! command -v wasm-pack &> /dev/null; then
-    echo -e "${YELLOW}  SKIP: wasm-pack not found. Install with: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh${NC}"
-elif ! command -v node &> /dev/null; then
-    echo -e "${YELLOW}  SKIP: Node.js not found. Install from: https://nodejs.org${NC}"
-else
+if command -v docker &> /dev/null; then
+    echo "  Using Docker for isolated browser testing..."
+    docker build -f Dockerfile.test -t fcemu-browser-tests . 2>&1 | tail -5
+    docker run --rm fcemu-browser-tests
+elif command -v node &> /dev/null && command -v wasm-pack &> /dev/null; then
+    echo "  Docker not found, falling back to local Node.js..."
     # Build WASM if pkg/ doesn't exist or is stale
     if [ ! -d "pkg" ] || [ "src/core/wasm.rs" -nt "pkg/fce_core.js" ]; then
-        echo "  Building WASM bundle..."
         bash build_web.sh
     fi
-
-    # Install Node dependencies if needed
-    if [ ! -d "node_modules" ]; then
-        echo "  Installing Node dependencies..."
-        npm install
-    fi
-
-    # Install Playwright browsers if needed
-    if ! npx playwright install --dry-run &> /dev/null 2>&1; then
-        echo "  Installing Playwright browsers..."
-        npx playwright install chromium
-    fi
-
-    # Run all Playwright tests
+    [ ! -d "node_modules" ] && npm install
+    npx playwright install --with-deps chromium 2>/dev/null
     npm test
+else
+    echo -e "${YELLOW}  SKIP: Neither Docker nor Node.js+wasm-pack found.${NC}"
+    echo -e "${YELLOW}  Browser tests will run in CI (GitHub Actions).${NC}"
 fi
 
 echo -e "\n${GREEN}=====================================================
  🎉 SUCCESS: ALL FCEMU MASTER 7-STEP TEST SUITES PASSED!
 =====================================================${NC}"
-
