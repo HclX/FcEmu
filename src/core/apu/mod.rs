@@ -964,23 +964,23 @@ mod tests {
         tri.enabled = true;
         tri.length_counter = 10;
         tri.linear_counter = 10;
-        tri.timer_period = 0; // tick every cycle
+        tri.timer_period = 2; // timer counts 2,1,0 then reloads and advances step
 
         // Step starts at 0, sample = 15 - 0 = 15
         assert_eq!(tri.sample(), 15.0);
 
-        // After one tick, step advances to 1 => sample = 15 - 1 = 14
-        tri.tick(1);
+        // After 3 ticks (timer: 2->1->0->reload), step advances to 1
+        tri.tick(3);
         assert_eq!(tri.step, 1);
         assert_eq!(tri.sample(), 14.0);
 
-        // Advance to step 16 => sample = 16 - 16 = 0
-        tri.tick(15);
+        // Advance 15 more steps (15 * 3 = 45 ticks) to reach step 16
+        tri.tick(45);
         assert_eq!(tri.step, 16);
         assert_eq!(tri.sample(), 0.0);
 
-        // Step 17 => sample = 17 - 16 = 1
-        tri.tick(1);
+        // One more step (3 ticks) => step 17, sample = 17 - 16 = 1
+        tri.tick(3);
         assert_eq!(tri.step, 17);
         assert_eq!(tri.sample(), 1.0);
     }
