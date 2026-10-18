@@ -4,6 +4,11 @@ use super::bus::MirroringMode;
 use super::region::EmulatorRegion;
 use mapper::{Mapper, Mapper0, Mapper1, Mapper2, Mapper227, Mapper3, Mapper30, Mapper34, Mapper7};
 
+/// Maximum CHR RAM accepted from a save state file. Real NES hardware
+/// tops out at 32KB of CHR RAM; the cap is generous (1MB) but stops a
+/// malformed state from triggering a multi-gigabyte allocation.
+const MAX_CHR_RAM_LEN: usize = 1024 * 1024;
+
 pub struct Cartridge {
     pub prg_rom: Vec<u8>,
     pub chr_rom: Vec<u8>,
@@ -202,7 +207,10 @@ impl Cartridge {
         let chr_ram_len = u32::from_le_bytes(state[idx..idx + 4].try_into().unwrap()) as usize;
         idx += 4;
         if chr_ram_len > 0 {
-            if state.len() < idx + chr_ram_len {
+            // chr_ram_len comes from the file: refuse absurd values instead
+            // of allocating blindly, and use saturating_add so the bounds
+            // check cannot wrap on 32-bit targets (wasm).
+            if chr_ram_len > MAX_CHR_RAM_LEN || state.len() < idx.saturating_add(chr_ram_len) {
                 return Err("State truncated for CHR RAM".to_string());
             }
             if self.chr_ram.len() != chr_ram_len {
@@ -219,7 +227,9 @@ impl Cartridge {
         let mapper_state_len = u32::from_le_bytes(state[idx..idx + 4].try_into().unwrap()) as usize;
         idx += 4;
         if mapper_state_len > 0 {
-            if state.len() < idx + mapper_state_len {
+            // saturating_add: the length comes from the file and must not
+            // wrap the bounds check on 32-bit targets (wasm).
+            if state.len() < idx.saturating_add(mapper_state_len) {
                 return Err("State truncated for Mapper state".to_string());
             }
             self.mapper.load_state(&state[idx..idx + mapper_state_len]);
@@ -276,5 +286,32 @@ mod tests {
         let rom = make_rom_header(0, true, 0x02);
         let cart = Cartridge::from_rom(&rom).unwrap();
         assert_eq!(cart.region, EmulatorRegion::Ntsc);
+    }
+
+    #[test]
+    fn test_load_state_rejects_oversized_chr_ram() {
+        // A crafted save state claiming 2MB of CHR RAM (real hardware
+        // max is 32KB) must be rejected with Err instead of allocating
+        // blindly from a file-controlled length.
+        let rom = make_rom_header(0x00, false, 0);
+        let mut cart = Cartridge::from_rom(&rom).unwrap();
+        let prg_ram_len = cart.prg_ram.len();
+        // Layout: prg_ram + chr_ram_len(u32) + chr_ram + mapper_len(u32).
+        let mut state = vec![0u8; prg_ram_len + 4 + 2 * 1024 * 1024 + 4];
+        state[prg_ram_len..prg_ram_len + 4].copy_from_slice(&(2 * 1024 * 1024u32).to_le_bytes());
+        assert!(cart.load_state(&state).is_err());
+    }
+
+    #[test]
+    fn test_load_state_rejects_huge_mapper_state_len() {
+        // A crafted save state claiming ~4GB of mapper state must be
+        // rejected with Err, not panic on an out-of-bounds slice.
+        let rom = make_rom_header(0x00, false, 0);
+        let mut cart = Cartridge::from_rom(&rom).unwrap();
+        let prg_ram_len = cart.prg_ram.len();
+        // Layout: prg_ram + chr_ram_len(u32=0) + mapper_len(u32).
+        let mut state = vec![0u8; prg_ram_len + 4 + 4];
+        state[prg_ram_len + 4..prg_ram_len + 8].copy_from_slice(&0xFFFF_FFFFu32.to_le_bytes());
+        assert!(cart.load_state(&state).is_err());
     }
 }
