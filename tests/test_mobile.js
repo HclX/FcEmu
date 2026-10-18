@@ -126,3 +126,79 @@ test('Tapping touch-overlay boots emulator, sliding D-pad runs ROM', async ({ pa
 
   console.log(`Touch gestures successfully emulated and routed!`);
 });
+
+test('Mobile B, Select, Start buttons and D-pad diagonal map to controller bits', async ({ page }) => {
+  await page.goto('/mobile.html?rom=novathesquirrel');
+
+  page.on('console', msg => console.log(`[MOBILE BROWSER] ${msg.type()}: ${msg.text()}`));
+  page.on('pageerror', err => console.error(`[MOBILE BROWSER ERROR] ${err.toString()}`));
+
+  await page.addInitScript(() => {
+    navigator.vibrate = () => true;
+    if (screen.orientation) {
+      screen.orientation.lock = async () => true;
+    }
+  });
+
+  await page.tap('#touch-overlay');
+  await expect(page.locator('#touch-overlay')).toHaveClass(/hidden/);
+  await page.waitForFunction(() => window.localFrameIndex > 15, null, { timeout: 12000 });
+
+  // Helper: press a touch button, assert its bit is set while held, release, assert cleared.
+  async function tapButton(selector, bit, label) {
+    const rect = await page.locator(selector).boundingBox();
+    expect(rect).not.toBeNull();
+    const x = rect.x + rect.width / 2;
+    const y = rect.y + rect.height / 2;
+
+    await page.dispatchEvent(selector, 'touchstart', {
+      changedTouches: [{ identifier: 7, clientX: x, clientY: y }]
+    });
+    const startFrame = await page.evaluate(() => window.localFrameIndex);
+    await page.waitForFunction((target) => window.localFrameIndex >= target, startFrame + 3, { timeout: 5000 });
+    const held = await page.evaluate(() => window.controllerState);
+    expect(held & bit).toBe(bit);
+    console.log(`Success: ${label} touch mapped to bit 0x${bit.toString(16)}`);
+
+    await page.dispatchEvent(selector, 'touchend', {
+      changedTouches: [{ identifier: 7, clientX: x, clientY: y }]
+    });
+    const releaseFrame = await page.evaluate(() => window.localFrameIndex);
+    await page.waitForFunction((target) => window.localFrameIndex >= target, releaseFrame + 2, { timeout: 2000 });
+    const released = await page.evaluate(() => window.controllerState);
+    expect(released & bit).toBe(0);
+  }
+
+  // B (0x02), Select (0x04), Start (0x08)
+  await tapButton('#btn-action-b', 0x02, 'Button B');
+  await tapButton('#btn-mobile-select', 0x04, 'Select');
+  await tapButton('#btn-mobile-start', 0x08, 'Start');
+
+  // D-pad diagonal: touch at exactly -135 degrees from center (equal -x/-y
+  // offsets) must map to UP (0x10) + LEFT (0x40) simultaneously.
+  const dpadRect = await page.locator('#virtual-dpad').boundingBox();
+  expect(dpadRect).not.toBeNull();
+  const centerX = dpadRect.x + dpadRect.width / 2;
+  const centerY = dpadRect.y + dpadRect.height / 2;
+  const r = Math.min(dpadRect.width, dpadRect.height) * 0.3;
+  const diagX = centerX - r;
+  const diagY = centerY - r;
+
+  await page.dispatchEvent('#virtual-dpad', 'touchstart', {
+    changedTouches: [{ identifier: 8, clientX: diagX, clientY: diagY }]
+  });
+  const diagStartFrame = await page.evaluate(() => window.localFrameIndex);
+  await page.waitForFunction((target) => window.localFrameIndex >= target, diagStartFrame + 3, { timeout: 5000 });
+  const diagHeld = await page.evaluate(() => window.controllerState);
+  expect(diagHeld & 0x10).toBe(0x10);
+  expect(diagHeld & 0x40).toBe(0x40);
+  console.log('Success: D-pad diagonal mapped to UP + LEFT!');
+
+  await page.dispatchEvent('#virtual-dpad', 'touchend', {
+    changedTouches: [{ identifier: 8, clientX: diagX, clientY: diagY }]
+  });
+  const diagReleaseFrame = await page.evaluate(() => window.localFrameIndex);
+  await page.waitForFunction((target) => window.localFrameIndex >= target, diagReleaseFrame + 2, { timeout: 2000 });
+  const diagReleased = await page.evaluate(() => window.controllerState);
+  expect(diagReleased & (0x10 | 0x40)).toBe(0);
+});
