@@ -84,15 +84,6 @@ window.keyboardControllerState = 0; // Module-scope controllerState (keyboard), 
 // DOM Elements
 const canvas = document.getElementById("nes-canvas");
 const ctx = canvas.getContext("2d");
-// Double-buffered presentation: frames are first written to an offscreen
-// canvas, then blitted to the visible canvas with drawImage. Writing
-// directly to the visible canvas with putImageData can tear (it modifies
-// the visible bitmap in place); drawImage goes through the compositor's
-// vsync-safe texture path.
-const offscreenCanvas = document.createElement("canvas");
-offscreenCanvas.width = 256;
-offscreenCanvas.height = 240;
-const offscreenCtx = offscreenCanvas.getContext("2d");
 
 const bootOverlay = document.getElementById("boot-overlay");
 const bootBtn = document.getElementById("boot-btn");
@@ -849,8 +840,7 @@ function loop() {
     const framePtr = emulator.frame_buffer_ptr();
     const rgbaBuffer = new Uint8ClampedArray(wasm_exports.memory.buffer, framePtr, 256 * 240 * 4);
     const frameImgData = new ImageData(rgbaBuffer, 256, 240);
-    offscreenCtx.putImageData(frameImgData, 0, 0);
-    ctx.drawImage(offscreenCanvas, 0, 0);
+    ctx.putImageData(frameImgData, 0, 0);
 
     // Step 4: Web Audio Scheduling (Dynamic short play nodes with latency control)
     if (audioCtx && audioCtx.state !== "suspended") {
