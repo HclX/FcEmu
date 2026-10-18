@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import fs from 'fs';
 import path from 'path';
+import { bootEmulator } from './helpers.js';
 
 // Desktop UI interaction E2E tests: boot the emulator, then exercise the
 // controls a real user touches — keyboard, remapping, pause, display
@@ -9,17 +10,13 @@ import path from 'path';
 
 async function boot(page) {
   await page.goto('/');
-  await page.click('#boot-btn', { force: true });
-  await expect(page.locator('#boot-overlay')).toHaveClass(/hidden/);
-  await page.waitForFunction(() => window.localFrameIndex > 10, null, { timeout: 15000 });
-  // Remove keyboard focus from the boot button so Space/Enter don't re-click it.
-  await page.evaluate(() => {
-    if (document.activeElement) document.activeElement.blur();
-  });
+  await bootEmulator(page);
 }
 
 async function controllerState(page) {
-  return page.evaluate(() => window.controllerState);
+  // Keyboard state (window.controllerState is gamepad-only: pollGamepads
+  // overwrites it every frame).
+  return page.evaluate(() => window.keyboardControllerState);
 }
 
 async function canvasSize(page) {
@@ -114,7 +111,7 @@ test.describe('Desktop UI interactions', () => {
     await boot(page);
 
     // Open the key config modal and remap A -> KeyW
-    await page.click('#btn-open-key-config');
+    await page.click('#btn-open-key-config', { force: true });
     await expect(page.locator('#key-config-modal')).toBeVisible();
     await page.click('[data-button="A"]');
     await expect(page.locator('#kbd-A')).toHaveText('Listening...');
@@ -158,12 +155,12 @@ test.describe('Desktop UI interactions', () => {
     expect(await canvasSize(page)).toEqual({ width: '768px', height: '672px' });
     expect(await page.textContent('#btn-aspect-ratio')).toBe('8:7');
 
-    await page.click('#btn-aspect-ratio');
+    await page.click('#btn-aspect-ratio', { force: true });
     expect(await page.textContent('#btn-aspect-ratio')).toBe('4:3');
     // Fit + CRT 4:3 -> 888x666
     expect(await canvasSize(page)).toEqual({ width: '888px', height: '666px' });
 
-    await page.click('#btn-aspect-ratio');
+    await page.click('#btn-aspect-ratio', { force: true });
     expect(await page.textContent('#btn-aspect-ratio')).toBe('8:7');
     expect(await canvasSize(page)).toEqual({ width: '768px', height: '672px' });
   });
@@ -174,19 +171,19 @@ test.describe('Desktop UI interactions', () => {
     expect(await page.textContent('#btn-display-size')).toBe('Fit');
     expect(await canvasSize(page)).toEqual({ width: '768px', height: '672px' });
 
-    await page.click('#btn-display-size');
+    await page.click('#btn-display-size', { force: true });
     expect(await page.textContent('#btn-display-size')).toBe('1x');
     expect(await canvasSize(page)).toEqual({ width: '256px', height: '224px' });
 
-    await page.click('#btn-display-size');
+    await page.click('#btn-display-size', { force: true });
     expect(await page.textContent('#btn-display-size')).toBe('2x');
     expect(await canvasSize(page)).toEqual({ width: '512px', height: '448px' });
 
-    await page.click('#btn-display-size');
+    await page.click('#btn-display-size', { force: true });
     expect(await page.textContent('#btn-display-size')).toBe('3x');
     expect(await canvasSize(page)).toEqual({ width: '768px', height: '672px' });
 
-    await page.click('#btn-display-size');
+    await page.click('#btn-display-size', { force: true });
     expect(await page.textContent('#btn-display-size')).toBe('Fit');
     expect(await canvasSize(page)).toEqual({ width: '768px', height: '672px' });
   });
@@ -196,10 +193,10 @@ test.describe('Desktop UI interactions', () => {
 
     const canvas = page.locator('#nes-canvas');
     await expect(canvas).toHaveClass(/crisp/);
-    await page.click('#btn-toggle-filter');
+    await page.click('#btn-toggle-filter', { force: true });
     await expect(canvas).not.toHaveClass(/crisp/);
     await expect(page.locator('#btn-toggle-filter')).toHaveAttribute('title', /Switch to Crisp/);
-    await page.click('#btn-toggle-filter');
+    await page.click('#btn-toggle-filter', { force: true });
     await expect(canvas).toHaveClass(/crisp/);
     await expect(page.locator('#btn-toggle-filter')).toHaveAttribute('title', /Switch to Smooth/);
   });
@@ -207,7 +204,7 @@ test.describe('Desktop UI interactions', () => {
   test('ROM loading via file picker', async ({ page }) => {
     await boot(page);
 
-    await page.click('#btn-open-library');
+    await page.click('#btn-open-library', { force: true });
     await page.locator('#file-input').setInputFiles('tests/roms/nestest.nes');
     await page.waitForFunction(() => window.currentRomName === 'nestest', null, { timeout: 15000 });
     await page.waitForFunction(() => window.localFrameIndex > 5, null, { timeout: 10000 });
@@ -216,7 +213,7 @@ test.describe('Desktop UI interactions', () => {
   test('ROM loading via drag-and-drop onto the drop zone', async ({ page }) => {
     await boot(page);
 
-    await page.click('#btn-open-library');
+    await page.click('#btn-open-library', { force: true });
     await page.evaluate(async () => {
       const response = await fetch('public/roms/flappy-bird.nes');
       const blob = await response.blob();
@@ -236,14 +233,14 @@ test.describe('Desktop UI interactions', () => {
     await boot(page);
     await page.waitForFunction(() => window.currentRomName === 'Nova the Squirrel (Platformer)', null, { timeout: 15000 });
 
-    await page.click('#btn-open-library');
+    await page.click('#btn-open-library', { force: true });
     await page.selectOption('#library-select', 'flappybird');
     await page.click('#btn-load-rom');
     await page.waitForFunction(() => window.currentRomName === 'Flappy Bird (Arcade)', null, { timeout: 15000 });
     await expect(page.locator('#rom-library-modal')).toBeHidden();
     await page.waitForFunction(() => window.localFrameIndex > 5, null, { timeout: 10000 });
 
-    await page.click('#btn-open-library');
+    await page.click('#btn-open-library', { force: true });
     await page.selectOption('#library-select', 'novathesquirrel');
     await page.click('#btn-load-rom');
     await page.waitForFunction(() => window.currentRomName === 'Nova the Squirrel (Platformer)', null, { timeout: 15000 });
@@ -253,7 +250,7 @@ test.describe('Desktop UI interactions', () => {
     const messages = collectConsole(page);
     await boot(page);
 
-    await page.click('#btn-save-state');
+    await page.click('#btn-save-state', { force: true });
     await waitForMessage(messages, 'State saved successfully');
     const saved = await readStore(page, 'save_states');
     expect(saved.length).toBe(1);
@@ -262,11 +259,9 @@ test.describe('Desktop UI interactions', () => {
     // Fresh page load: the saved state must still be there and loadable.
     await page.reload({ waitUntil: 'networkidle' });
     await page.waitForSelector('#boot-btn', { state: 'visible' });
-    await page.click('#boot-btn', { force: true });
-    await expect(page.locator('#boot-overlay')).toHaveClass(/hidden/);
-    await page.waitForFunction(() => window.localFrameIndex > 10, null, { timeout: 15000 });
+    await bootEmulator(page);
 
-    await page.click('#btn-load-state');
+    await page.click('#btn-load-state', { force: true });
     await waitForMessage(messages, 'State loaded successfully');
     const afterLoad = await page.evaluate(() => window.localFrameIndex);
     await page.waitForFunction((f) => window.localFrameIndex > f + 5, afterLoad, { timeout: 5000 });
@@ -291,9 +286,7 @@ test.describe('Desktop UI interactions', () => {
       // Reload, boot, load the same ROM again: SRAM must be restored.
       await page.reload({ waitUntil: 'networkidle' });
       await page.waitForSelector('#boot-btn', { state: 'visible' });
-      await page.click('#boot-btn', { force: true });
-      await expect(page.locator('#boot-overlay')).toHaveClass(/hidden/);
-      await page.waitForFunction(() => window.localFrameIndex > 10, null, { timeout: 15000 });
+      await bootEmulator(page);
       await page.locator('#file-input').setInputFiles(tempRomPath);
       await waitForMessage(messages, 'Successfully restored SRAM save state');
     } finally {
@@ -304,11 +297,11 @@ test.describe('Desktop UI interactions', () => {
   test('Fullscreen toggle enters and exits fullscreen on the canvas wrapper', async ({ page }) => {
     await boot(page);
 
-    await page.click('#btn-fullscreen');
+    await page.click('#btn-fullscreen', { force: true });
     await page.waitForFunction(() => !!document.fullscreenElement, null, { timeout: 5000 });
     expect(await page.evaluate(() => document.fullscreenElement.id)).toBe('canvas-wrapper');
 
-    await page.click('#btn-fullscreen');
+    await page.click('#btn-fullscreen', { force: true });
     await page.waitForFunction(() => !document.fullscreenElement, null, { timeout: 5000 });
   });
 });

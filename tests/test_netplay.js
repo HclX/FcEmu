@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { bootEmulator } from './helpers.js';
 
 test.describe('Netplay E2E Tests', () => {
 
@@ -14,8 +15,8 @@ test.describe('Netplay E2E Tests', () => {
     await guestPage.goto('/');
 
     // Boot emulator and open multiplayer modal lobby
-    await hostPage.click('#boot-btn', { force: true });
-    await guestPage.click('#boot-btn', { force: true });
+    await bootEmulator(hostPage);
+    await bootEmulator(guestPage);
     await hostPage.click('#btn-open-multiplayer', { force: true });
     await guestPage.click('#btn-open-multiplayer', { force: true });
 
@@ -54,7 +55,7 @@ test.describe('Netplay E2E Tests', () => {
     await autoJoinPage.goto(`/?room=${peerId}`);
 
     // Boot and open multiplayer lobby to verify auto-join status
-    await autoJoinPage.click('#boot-btn', { force: true });
+    await bootEmulator(autoJoinPage);
     await autoJoinPage.click('#btn-open-multiplayer', { force: true });
     
     // Verify auto-joining successfully establishes connection
@@ -76,8 +77,8 @@ test.describe('Netplay E2E Tests', () => {
     await guestPage.goto('/');
 
     // Boot emulator and open multiplayer modal lobby
-    await hostPage.click('#boot-btn', { force: true });
-    await guestPage.click('#boot-btn', { force: true });
+    await bootEmulator(hostPage);
+    await bootEmulator(guestPage);
     await hostPage.click('#btn-open-multiplayer', { force: true });
     await guestPage.click('#btn-open-multiplayer', { force: true });
 
@@ -144,8 +145,8 @@ test.describe('Netplay E2E Tests', () => {
     await guestPage.goto('/');
 
     // Boot emulator and open multiplayer modal lobby
-    await hostPage.click('#boot-btn', { force: true });
-    await guestPage.click('#boot-btn', { force: true });
+    await bootEmulator(hostPage);
+    await bootEmulator(guestPage);
     await hostPage.click('#btn-open-multiplayer', { force: true });
     await guestPage.click('#btn-open-multiplayer', { force: true });
 
@@ -208,8 +209,8 @@ test.describe('Netplay E2E Tests', () => {
     await guestPage.goto('/');
 
     // Boot emulator and open multiplayer modal lobby
-    await hostPage.click('#boot-btn', { force: true });
-    await guestPage.click('#boot-btn', { force: true });
+    await bootEmulator(hostPage);
+    await bootEmulator(guestPage);
     await hostPage.click('#btn-open-multiplayer', { force: true });
     await guestPage.click('#btn-open-multiplayer', { force: true });
 

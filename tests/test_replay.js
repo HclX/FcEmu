@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import fs from 'fs';
 import path from 'path';
+import { bootEmulator } from './helpers.js';
 
 test.describe('Gameplay Replay E2E Verification', () => {
 
@@ -12,12 +13,8 @@ test.describe('Gameplay Replay E2E Verification', () => {
     page.on('console', msg => console.log(`[BROWSER] ${msg.type()}: ${msg.text()}`));
     page.on('pageerror', err => console.error(`[BROWSER ERROR] ${err.toString()}`));
 
-    // 1. Boot the emulator
-    await page.click('#boot-btn', { force: true });
-    await expect(page.locator('#boot-overlay')).toHaveClass(/hidden/);
-
-    // 2. Default ROM "novathesquirrel" auto-loads on startup, wait for it to start ticking
-    await page.waitForFunction(() => window.localFrameIndex > 10, null, { timeout: 10000 });
+    // 1. Boot the emulator (default ROM auto-loads, wait for it to start ticking)
+    await bootEmulator(page);
 
 
     // Helper function to wait for a precise number of frames to execute
@@ -79,11 +76,9 @@ test.describe('Gameplay Replay E2E Verification', () => {
     await page.waitForSelector('#boot-btn', { state: 'visible' });
 
     // 8. Re-boot emulator
-    await page.click('#boot-btn', { force: true });
-    await expect(page.locator('#boot-overlay')).toHaveClass(/hidden/);
+    await bootEmulator(page);
 
-    // 9. Default ROM "novathesquirrel" auto-loads on reload, wait for it to start ticking
-    await page.waitForFunction(() => window.localFrameIndex > 10, null, { timeout: 10000 });
+    // 9. Default ROM "novathesquirrel" auto-loads on reload
 
     // 10. Upload the `.fcr` replay file via the hidden input
     console.log('Uploading .fcr replay file...');
