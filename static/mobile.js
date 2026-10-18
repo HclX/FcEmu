@@ -1,4 +1,5 @@
 import init, { WasmEmulator } from "./pkg/fce_core.js";
+import { FramePacer, frameDurationMs } from "./frame_pacer.js";
 
 // Emulator states
 let wasm_exports = null;
@@ -157,9 +158,21 @@ async function startAudio() {
     }
 }
 
-// Main emulator loop
-function loop() {
-    if (!isRunning || !emulator) return;
+// Main emulator loop. Runs once per display refresh; emulation itself
+// advances on a fixed timestep (see frame_pacer.js).
+const framePacer = new FramePacer();
+
+function loop(now) {
+    if (!isRunning || !emulator) {
+        framePacer.reset();
+        return;
+    }
+
+    const due = framePacer.due(now, frameDurationMs(emulator.get_region()));
+    if (due === 0) {
+        requestAnimationFrame(loop);
+        return;
+    }
 
     // Merged inputs mapping
     let consolidatedMask = 0;
@@ -171,8 +184,10 @@ function loop() {
     emulator.write_controller(mobileControllerState);
     emulator.write_controller2(0); // Mobile is strictly Singleplayer
 
-    emulator.step_frame();
-    localFrameIndex++;
+    for (let i = 0; i < due; i++) {
+        emulator.step_frame();
+        localFrameIndex++;
+    }
     window.localFrameIndex = localFrameIndex;
 
     // Render frame buffer (zero-copy)

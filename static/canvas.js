@@ -1,5 +1,6 @@
 
 import init, { WasmEmulator } from "./pkg/fce_core.js";
+import { FramePacer, frameDurationMs } from "./frame_pacer.js";
 
 window.onerror = function(message, source, lineno, colno, error) {
     const boundary = document.getElementById('global-error-boundary');
@@ -707,10 +708,43 @@ function pollGamepads() {
     }
 }
 
-// Main Emulation Render and Audio Loop
-function loop() {
-    if (!isRunning) return;
+// Main Emulation Render and Audio Loop. Runs once per display refresh;
+// emulation itself advances on a fixed timestep (see frame_pacer.js).
+const framePacer = new FramePacer();
 
+function loop(now) {
+    if (!isRunning) {
+        framePacer.reset();
+        return;
+    }
+
+    const frameMs = frameDurationMs(emulator.get_region());
+    const due = framePacer.due(now, frameMs);
+    let ran = 0;
+    for (let i = 0; i < due; i++) {
+        const result = runEmulationTick();
+        if (result === "stopped") {
+            framePacer.reset();
+            return;
+        }
+        if (result === "blocked") {
+            framePacer.clamp(frameMs);
+            break;
+        }
+        ran++;
+    }
+
+    if (ran > 0) {
+        presentFrame();
+    }
+
+    requestAnimationFrame(loop);
+}
+
+// Advances emulation by one tick (one frame, or `playbackSpeed` frames
+// during replay fast-forward). Returns "ran", "blocked" (netplay waiting
+// for peer input) or "stopped" (netplay session timed out).
+function runEmulationTick() {
     // Safely apply replay data synchronously outside of active WASM calls
     if (pendingReplayData) {
         applyPendingReplay(pendingReplayData);
@@ -745,15 +779,14 @@ function loop() {
                     if (conn) {
                         conn.close();
                     }
-                    return;
+                    return "stopped";
                 }
             }
             if (spinner) {
                 spinner.classList.remove("hidden");
                 spinner.style.display = "flex";
             }
-            requestAnimationFrame(loop);
-            return;
+            return "blocked";
         }
 
         netplayBlockStartTime = null; // Reset keepalive/timeout
@@ -836,6 +869,11 @@ function loop() {
         }
     }
 
+    return "ran";
+}
+
+// Draws the latest emulated frame and schedules the audio it produced.
+function presentFrame() {
     // Step 3: Visual Output (100% Pure Zero-Copy Direct Memory Sharing)
     const framePtr = emulator.frame_buffer_ptr();
     const rgbaBuffer = new Uint8ClampedArray(wasm_exports.memory.buffer, framePtr, 256 * 240 * 4);
@@ -884,8 +922,6 @@ function loop() {
             }
         }
     }
-
-    requestAnimationFrame(loop);
 }
 
 // Window-level Drag Interceptors to Prevent Tab Overwriting
