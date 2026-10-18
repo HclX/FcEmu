@@ -28,7 +28,7 @@ The project began as a cloud-streamed emulator backend (written in Rust with Axu
     *   **Comfort Placement A/B Buttons**: Slanted retro layout matching real handheld devices.
     *   **Zero-latency tactile haptics** (`navigator.vibrate`).
     *   **Absolute Viewport Locks**: Purged all pinch-zoom/scroll gestures for a native console feel.
-*   **Instant Play & Local Load**: Drag-and-drop your own `.nes` files or click to load default homebrew games (like *Lizard* or *Nova the Squirrel*) instantly.
+*   **Instant Play & Local Load**: Drag-and-drop your own `.nes` files or click to load default homebrew games (like *Nova the Squirrel* or *Flappy Bird*) instantly.
 *   **Crisp Rendering & Ratios**: Features sharp nearest-neighbor pixel scaling with Native (8:7) and CRT (4:3) aspect ratio togglers.
 *   **Local Saves (SRAM)**: Automatic 5-second dirty-checking auto-save and visible tab change saves persisted to browser `IndexedDB`.
 *   **Gameplay Recording & Replay (`.fcr`)**: Capture your playthroughs frame-by-frame using a highly compressed delta input log. Download it as a microscopic `.fcr` file (under 50KB for 2 hours of gameplay!) and share it. Replay it back with 100% cycle-accurate determinism, including **Fast-Forward (1.0x to 8.0x speed)** sweeps with automatic audio protection.
@@ -105,9 +105,5 @@ We would like to express our deep gratitude to the creative developers in the NE
     *   **Developer**: jwarby
     *   **Official Repository**: [jwarby/flappy-bird-nes](https://github.com/jwarby/flappy-bird-nes)
     *   **License**: Open-source free homebrew software.
-*   **Lizard (Demo)**
-    *   **Developer**: Brad Smith (rainwarrior)
-    *   **Official Page & Purchase**: [Lizard on Itch.io](https://rainwarrior.itch.io/lizard)
-    *   **License**: Free playable demo of the commercial homebrew adventure game.
 
 All homebrew ROM binaries are fetched from the community-maintained **[Retrobrews NES Games Collection](https://github.com/retrobrews/nes-games)** and original open-source developer repositories. We encourage players to visit these developers' websites, support their projects, and explore the rich world of modern NES homebrew development!

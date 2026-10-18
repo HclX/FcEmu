@@ -68,7 +68,6 @@ let netplayBlockStartTime = null;
 const DEFAULT_ROMS = {
     "novathesquirrel": { name: "Nova the Squirrel (Platformer)", path: "./public/roms/novathesquirrel.nes" },
     "flappybird": { name: "Flappy Bird (Arcade)", path: "./public/roms/flappy-bird.nes" },
-    "lizard": { name: "Lizard (Adventure Demo)", path: "./public/roms/lizard_demo.nes" }
 };
 let userRomsCache = {}; // Cache user ROM ArrayBuffers by Hash key
 
