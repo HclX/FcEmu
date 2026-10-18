@@ -43,6 +43,7 @@ let gainNode = null;
 let isMuted = false;
 let nextPlayTime = 0;
 let isRunning = false;
+let bootOverlayHiddenAt = 0; // When the boot overlay was last hidden (canvas-click grace, below)
 
 // SRAM Persistence variables
 let currentRomHash = null;
@@ -79,6 +80,7 @@ window.localInputs = localInputs;
 window.pauseIncomingPackets = false;
 window.controllerState = 0;
 window.controller2State = 0;
+window.keyboardControllerState = 0; // Module-scope controllerState (keyboard), for E2E tests
 
 // DOM Elements
 const canvas = document.getElementById("nes-canvas");
@@ -384,6 +386,7 @@ window.addEventListener("keydown", (event) => {
     if (KEY_MAP[event.code] !== undefined) {
         if (isRunning) {
             controllerState |= KEY_MAP[event.code];
+            window.keyboardControllerState = controllerState;
         }
         event.preventDefault();
     }
@@ -444,6 +447,7 @@ window.addEventListener("keyup", (event) => {
     }
     if (KEY_MAP[event.code] !== undefined) {
         controllerState &= ~KEY_MAP[event.code];
+        window.keyboardControllerState = controllerState;
         event.preventDefault();
     }
 });
@@ -657,6 +661,10 @@ async function startAudioAndCore() {
         }
         if (audioCtx.state === "running") {
             bootOverlay.classList.add("hidden");
+            // Remember when the overlay hid: a click that lands on the
+            // canvas within the fade-out window (e.g. a double-click on
+            // the boot button) must not pause the game.
+            bootOverlayHiddenAt = Date.now();
             console.log("Audio Context initialized and running.");
         } else {
             console.warn("Audio Context is suspended. Keeping overlay visible.");
@@ -2106,6 +2114,12 @@ function togglePause() {
 if (canvas) {
     canvas.addEventListener("click", () => {
         if (bootOverlay && !bootOverlay.classList.contains("hidden")) return;
+        // Ignore clicks that land on the canvas within a short window
+        // after the boot overlay hides: a double-click on the boot
+        // button (or an automated click racing the overlay's auto-hide
+        // when audio starts without a gesture) would otherwise pause
+        // the game the instant it starts.
+        if (Date.now() - bootOverlayHiddenAt < 500) return;
         // Only allow pausing via canvas click (resuming must be done via the Resume button)
         if (isRunning) {
             togglePause();
