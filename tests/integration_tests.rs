@@ -383,3 +383,35 @@ fn test_frame_boundary_cycle_counts() {
         ntsc_cycles_per_frame
     );
 }
+
+#[test]
+fn test_cpu_sta_4014_dma_stall_cycles() {
+    // OAM DMA ($4014 write) must stall the CPU: STA absolute (4 cycles)
+    // + 513 DMA cycles = 517 cycles returned by Cpu::step, and the
+    // pending DMA counter must be consumed (not left for a later step).
+    let mut bus = SimpleBus::new();
+    let mut cpu = Cpu::new();
+    bus.mem[0xFFFC] = 0x00;
+    bus.mem[0xFFFD] = 0x80;
+    cpu.reset(&mut bus);
+    bus.mem[0x8000] = 0x8D; // STA $4014 (absolute)
+    bus.mem[0x8001] = 0x14;
+    bus.mem[0x8002] = 0x40;
+    let cycles = cpu.step(&mut bus);
+    assert_eq!(cycles, 4 + 513);
+    assert_eq!(bus.dma_cycles, 0);
+}
+
+#[test]
+fn test_cpu_no_dma_stall_without_4014_write() {
+    // A plain instruction must not pick up phantom DMA cycles.
+    let mut bus = SimpleBus::new();
+    let mut cpu = Cpu::new();
+    bus.mem[0xFFFC] = 0x00;
+    bus.mem[0xFFFD] = 0x80;
+    cpu.reset(&mut bus);
+    bus.mem[0x8000] = 0xEA; // NOP
+    let cycles = cpu.step(&mut bus);
+    assert_eq!(cycles, 2);
+    assert_eq!(bus.dma_cycles, 0);
+}

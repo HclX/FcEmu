@@ -1623,9 +1623,10 @@ impl Cpu {
         };
 
         let extra_cycles = (self.cycles - start_cycles) as u32;
-        self.cycles = start_cycles + cycles as u64 + extra_cycles as u64;
+        let dma_cycles = bus.consume_dma_cycles();
+        self.cycles = start_cycles + cycles as u64 + extra_cycles as u64 + dma_cycles as u64;
 
-        cycles + extra_cycles
+        cycles + extra_cycles + dma_cycles
     }
 }
 

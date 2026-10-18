@@ -15,6 +15,13 @@ pub trait CpuBus {
     fn poll_irq(&mut self) -> bool;
     fn clear_nmi(&mut self);
     fn reset(&mut self);
+    /// Consume pending OAM DMA stall cycles (0 if none). The CPU calls this
+    /// after each instruction so DMA time is folded into the instruction's
+    /// returned cycle count; the frame loop then ticks PPU/APU exactly once
+    /// for the full duration. Buses without DMA return 0.
+    fn consume_dma_cycles(&mut self) -> u32 {
+        0
+    }
 }
 
 /// Interface contract between the PPU and the visual memory bus.
@@ -140,12 +147,6 @@ impl SimpleBus {
         }
     }
 
-    pub fn consume_dma_cycles(&mut self) -> u32 {
-        let cycles = self.dma_cycles;
-        self.dma_cycles = 0;
-        cycles
-    }
-
     pub fn load_cartridge(&mut self, cartridge: Cartridge) {
         let region = cartridge.region;
         self.cartridge = Some(cartridge);
@@ -255,11 +256,11 @@ impl CpuBus for SimpleBus {
                 }
                 self.ppu.write_oam_dma(&dma_data);
                 // 513 total DMA cycles (1 dummy + 256 read + 256 write).
-                // The 256 reads are already ticked above via self.read().
-                // Tick APU/PPU for the remaining 257 cycles (1 dummy + 256 writes).
-                let extra_ppu = self.accumulate_ppu_cycles(257);
-                self.tick_ppu(extra_ppu);
-                self.apu.tick(257);
+                // The 256 reads above already advanced the PPU via self.read().
+                // The remaining stall time is NOT ticked here: it is reported
+                // via dma_cycles and folded into the CPU's returned cycle
+                // count by Cpu::step, so the frame loop ticks PPU/APU for
+                // the full duration exactly once (no double counting).
                 self.dma_cycles = 513;
             }
             0x4016 => {
@@ -301,6 +302,12 @@ impl CpuBus for SimpleBus {
         self.apu.reset();
         self.ppu.reset();
         self.apu.tick(7); // CPU reset sequence takes 7 cycles, APU runs during this time
+    }
+
+    fn consume_dma_cycles(&mut self) -> u32 {
+        let cycles = self.dma_cycles;
+        self.dma_cycles = 0;
+        cycles
     }
 }
 
