@@ -1,5 +1,7 @@
 # FC/NES Emulator Development Plan: `TODO.md`
 
+> **Status note (2026-10-17): this is a historical planning snapshot.** Most checkboxes below are stale — many items were implemented in commits after this file was written (e.g. APU envelope/sweep/DMC, OAM DMA stall cycles, mappers 3/7, PPU rendering rework, CI). Do not treat unchecked boxes as open work. The source of truth for what is verified is `cargo test` (Rust unit/integration tests) plus the Playwright E2E suite in `tests/` (see README "End-to-end tests").
+
 This document lists all tasks required to build a fully working, premium, test-driven Rust Famicom emulator. Tasks are structured chronologically and categorized by component tracks to facilitate parallel contributions.
 
 ---

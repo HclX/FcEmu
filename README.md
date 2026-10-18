@@ -60,6 +60,27 @@ To compile WASM and preview the emulator locally:
     ```
     *(This serves the project on `http://localhost:8080/` with caching fully disabled and proper WASM MIME type support).*
 
+### End-to-end tests (Playwright)
+
+The `tests/` directory has Playwright tests that drive the real UI in headless Chromium:
+
+```bash
+npm install
+npx playwright install chromium
+npx playwright test
+```
+
+(The WASM core must be built first via `./build_web.sh`; the test runner starts the Vite dev server automatically.)
+
+| File | Covers |
+| --- | --- |
+| `tests/test_ui.js` | Desktop interactions: all 8 keyboard buttons, key remapping, pause/resume, aspect-ratio (8:7 ↔ 4:3) + display-size (Fit/1x/2x/3x) + filter toggles, ROM loading via file picker and drag-and-drop, ROM switching, save-state persistence across reload, SRAM auto-save/restore, fullscreen |
+| `tests/test_mobile.js` | Mobile: redirect to `mobile.html`, touch overlay boot, D-pad (incl. diagonal), A/B/Select/Start touch buttons |
+| `tests/test_replay.js` | Record gameplay, replay with bit-perfect determinism, 8x fast-forward |
+| `tests/test_netplay.js` | P2P connection, lockstep sync, gamepad mapping, buffering UI |
+
+Note: the netplay tests need network access to the PeerJS CDN (`unpkg.com`) and the PeerJS cloud broker, and the 30s per-test timeout can be tight on slow machines — they are the only suite that needs the live internet.
+
 For detailed technical specifications, timing sync reviews, and architecture, see the **[DESIGN.md](DESIGN.md)** guide. For extensive local verification and automated deploy configs, see the **[RELEASE.md](RELEASE.md)** manual.
 
 ---

@@ -5,6 +5,8 @@
 > **Method**: Line-by-line source code review by 5 parallel research agents  
 > **Verdict**: Solid CPU foundation, but critical PPU rendering bugs and missing APU features significantly limit accuracy.
 
+> **Status note (2026-10-17): this report is a historical snapshot from 2026-05-28.** A large share of its ~55 findings were fixed in later commits (APU envelope/sweep/DMC, DMA stall cycles, mappers 3/7, PPU rendering rework, CI, save-state hardening, PPUMASK emphasis). Verify any item against current code and tests before acting on it — do not re-fix what is already fixed. Known still-open gaps as of 2026-10-17: MMC3 (Mapper 4) is not implemented; the `Lizard` default-ROM entry has no ROM file in `static/public/roms/`; netplay E2E tests need live network to the PeerJS CDN/broker.
+
 ---
 
 ## Executive Summary
