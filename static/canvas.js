@@ -52,7 +52,8 @@ let autoSaveIntervalId = null;
 
 // Display size variables
 let currentScale = "fit";
-let currentRatio = "native";
+let currentRatio = "native"; // "native" (8:7 pixel-perfect) or "crt" (4:3 TV stretch)
+let currentSizeMode = "fit"; // "fit" (fill available space) or "1x" / "2x" / "3x"
 
 // PeerJS Netplay Variables
 let peer = null;
@@ -238,23 +239,33 @@ function validateNESHeader(arrayBuffer) {
 
 // Sizing Engine Layout Function
 function applyLayoutSize() {
-    const targetRatio = 16 / 15; // Always keep native aspect ratio
-    
+    // NES pixel-perfect ratio is 8:7 (256x224 visible lines); CRT stretches to 4:3.
+    const targetRatio = currentRatio === "crt" ? 4 / 3 : 8 / 7;
+
     const reservedHeight = 48; // Page vertical padding/margins
     const reservedWidth = 392; // Sidebar (320px) + Gap (24px) + Margins (48px)
-    
-    // Calculate maximum available space, enforcing strict 2x minimums (512x480)
+
+    // Calculate maximum available space, enforcing strict 2x minimums (512x480) in Fit mode
     const maxW = Math.max(512, window.innerWidth - reservedWidth);
     const maxH = Math.max(480, window.innerHeight - reservedHeight);
-    
-    let finalWidth = maxW;
-    let finalHeight = maxW / targetRatio;
-    
-    if (finalHeight > maxH) {
-        finalHeight = maxH;
-        finalWidth = maxH * targetRatio;
+
+    let finalWidth;
+    let finalHeight;
+    if (currentSizeMode === "fit") {
+        finalWidth = maxW;
+        finalHeight = maxW / targetRatio;
+
+        if (finalHeight > maxH) {
+            finalHeight = maxH;
+            finalWidth = maxH * targetRatio;
+        }
+    } else {
+        // Fixed integer scale: 1x = 256x224 (native), 2x, 3x.
+        const scale = parseInt(currentSizeMode, 10);
+        finalWidth = 256 * scale;
+        finalHeight = finalWidth / targetRatio;
     }
-    
+
     canvas.style.setProperty("--canvas-width", `${Math.floor(finalWidth)}px`);
     canvas.style.setProperty("--canvas-height", `${Math.floor(finalHeight)}px`);
 }
@@ -917,6 +928,9 @@ async function handleROMBuffer(arrayBuffer, romName = "unknown_rom.nes") {
 
     currentRomHash = romHash;
     currentRomName = romName;
+    // Expose for Playwright E2E tests (see globals block above)
+    window.currentRomName = currentRomName;
+    window.currentRomHash = currentRomHash;
     lastSavedSram = null;
 
     // 4. Load the ROM bytes into the WASM core
@@ -1382,6 +1396,31 @@ function toggleFullscreen() {
     } else {
         document.exitFullscreen();
     }
+}
+
+// Aspect Ratio Toggle (Native 8:7 <-> CRT 4:3)
+const btnAspectRatio = document.getElementById("btn-aspect-ratio");
+if (btnAspectRatio) {
+    btnAspectRatio.addEventListener("click", () => {
+        currentRatio = currentRatio === "crt" ? "native" : "crt";
+        const isCrt = currentRatio === "crt";
+        btnAspectRatio.textContent = isCrt ? "4:3" : "8:7";
+        btnAspectRatio.title = `Aspect Ratio: ${isCrt ? "CRT (4:3)" : "Native (8:7)"}`;
+        applyLayoutSize();
+    });
+}
+
+// Display Size Toggle (Fit -> 1x -> 2x -> 3x -> Fit)
+const DISPLAY_SIZE_MODES = ["fit", "1x", "2x", "3x"];
+const btnDisplaySize = document.getElementById("btn-display-size");
+if (btnDisplaySize) {
+    btnDisplaySize.addEventListener("click", () => {
+        const nextIndex = (DISPLAY_SIZE_MODES.indexOf(currentSizeMode) + 1) % DISPLAY_SIZE_MODES.length;
+        currentSizeMode = DISPLAY_SIZE_MODES[nextIndex];
+        btnDisplaySize.textContent = currentSizeMode === "fit" ? "Fit" : currentSizeMode;
+        btnDisplaySize.title = `Display Size: ${currentSizeMode === "fit" ? "Fit Window" : currentSizeMode}`;
+        applyLayoutSize();
+    });
 }
 
 // ROM Library Modal Overlay Toggle
