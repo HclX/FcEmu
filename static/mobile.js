@@ -48,6 +48,12 @@ let mobileControllerState = 0;
 // UI Elements
 const canvas = document.getElementById("emulator-canvas");
 const ctx = canvas.getContext("2d");
+// Double-buffered presentation: see canvas.js — frames go to an offscreen
+// canvas first, then drawImage to the visible canvas (vsync-safe).
+const offscreenCanvas = document.createElement("canvas");
+offscreenCanvas.width = 256;
+offscreenCanvas.height = 240;
+const offscreenCtx = offscreenCanvas.getContext("2d");
 const touchOverlay = document.getElementById("touch-overlay");
 const romSelect = document.getElementById("mobile-rom-select");
 const btnSelect = document.getElementById("btn-mobile-select");
@@ -179,7 +185,8 @@ function loop() {
     const framePtr = emulator.frame_buffer_ptr();
     const rgbaBuffer = new Uint8ClampedArray(wasm_exports.memory.buffer, framePtr, 256 * 240 * 4);
     const frameImgData = new ImageData(rgbaBuffer, 256, 240);
-    ctx.putImageData(frameImgData, 0, 0);
+    offscreenCtx.putImageData(frameImgData, 0, 0);
+    ctx.drawImage(offscreenCanvas, 0, 0);
 
     // Handle audio sampling
     if (audioCtx && audioCtx.state !== "suspended" && !isMuted) {
