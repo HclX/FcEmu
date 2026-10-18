@@ -19,7 +19,8 @@ WORKDIR /app
 # Copy project files needed for testing
 COPY package.json playwright.config.js vite.config.js ./
 COPY static/ static/
-COPY tests/test_*.js tests/
+COPY tests/*.js tests/
+COPY tests/roms/ tests/roms/
 
 # Copy WASM build output from stage 1
 COPY --from=wasm-builder /app/static/pkg/ static/pkg/
