@@ -483,9 +483,9 @@ mod tests {
     #[test]
     fn test_wasm_emulator_sram() {
         let mut emu = WasmEmulator::new();
-        assert_eq!(emu.has_battery_backed_sram(), false);
+        assert!(!emu.has_battery_backed_sram());
         assert!(emu.get_sram().is_none());
-        assert_eq!(emu.set_sram(&[0; 8192]), false);
+        assert!(!emu.set_sram(&[0; 8192]));
 
         // Create a valid mock iNES ROM with battery-backed SRAM (NROM mapper 0)
         let mut rom = vec![0; 16 + 16384 + 8192];
@@ -495,7 +495,7 @@ mod tests {
         rom[6] = 0x02; // Has battery
 
         assert!(emu.load_rom(&rom));
-        assert_eq!(emu.has_battery_backed_sram(), true);
+        assert!(emu.has_battery_backed_sram());
 
         let sram = emu.get_sram().unwrap();
         assert_eq!(sram.len(), 8192);
@@ -605,7 +605,7 @@ mod tests {
         rom[6] = 0x02; // Has battery
 
         assert!(emu.load_rom(&rom));
-        assert_eq!(emu.has_battery_backed_sram(), true);
+        assert!(emu.has_battery_backed_sram());
 
         // Modify SRAM and mapper registers
         if let Some(ref mut cart) = emu.bus.cartridge {

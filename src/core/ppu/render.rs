@@ -529,7 +529,7 @@ mod tests {
         ppu.render_pixel(&mut bus);
 
         // With priority bit set and both opaque, BG should win
-        let fb_idx = (ppu.scanline as usize * 256 + 0) * 4;
+        let fb_idx = (ppu.scanline as usize * 256) * 4;
         let rendered_r = ppu.frame_buffer[fb_idx];
         let bg_r = NES_PALETTE[(bg_color & 0x3F) as usize * 3];
         assert_eq!(
@@ -565,7 +565,7 @@ mod tests {
         ppu.render_pixel(&mut bus);
 
         // With priority = 0 and both opaque, sprite should win
-        let fb_idx = (ppu.scanline as usize * 256 + 0) * 4;
+        let fb_idx = (ppu.scanline as usize * 256) * 4;
         let rendered_r = ppu.frame_buffer[fb_idx];
         let sprite_r = NES_PALETTE[(sprite_color & 0x3F) as usize * 3];
         assert_eq!(

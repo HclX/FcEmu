@@ -405,8 +405,8 @@ mod tests {
         }
 
         // Fill PRG with NOP (0xEA)
-        for i in 16..(16 + 16384) {
-            rom[i] = 0xEA;
+        for byte in rom.iter_mut().skip(16).take(16384) {
+            *byte = 0xEA;
         }
 
         // Set reset vector to 0x8000
@@ -458,7 +458,7 @@ mod tests {
 
             // Expected NTSC CPU cycles per frame: 29780.66
             assert!(
-                elapsed_cpu_cycles >= 29770 && elapsed_cpu_cycles <= 29790,
+                (29770..=29790).contains(&elapsed_cpu_cycles),
                 "NTSC frame cycles: {}",
                 elapsed_cpu_cycles
             );
@@ -503,7 +503,7 @@ mod tests {
 
             // Expected PAL CPU cycles per frame: 33247.5
             assert!(
-                elapsed_cpu_cycles >= 33235 && elapsed_cpu_cycles <= 33260,
+                (33235..=33260).contains(&elapsed_cpu_cycles),
                 "PAL frame cycles: {}",
                 elapsed_cpu_cycles
             );

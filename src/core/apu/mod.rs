@@ -927,9 +927,11 @@ mod tests {
 
     #[test]
     fn test_noise_lfsr() {
-        let mut noise = NoiseChannel::default();
-        noise.enabled = true;
-        noise.length_counter = 10;
+        let mut noise = NoiseChannel {
+            enabled: true,
+            length_counter: 10,
+            ..Default::default()
+        };
         noise.envelope.constant_volume = true;
         noise.envelope.volume = 15;
         noise.timer_period = 0; // tick every cycle
@@ -949,11 +951,14 @@ mod tests {
 
     #[test]
     fn test_triangle_step_sequence() {
-        let mut tri = TriangleChannel::default();
-        tri.enabled = true;
-        tri.length_counter = 10;
-        tri.linear_counter = 10;
-        tri.timer_period = 2; // timer counts 2,1,0 then reloads and advances step
+        let mut tri = TriangleChannel {
+            enabled: true,
+            length_counter: 10,
+            linear_counter: 10,
+            timer_period: 2,
+            ..Default::default()
+        };
+        // timer counts 2,1,0 then reloads and advances step
 
         // Step starts at 0, sample = 15 - 0 = 15
         assert_eq!(tri.sample(), 15.0);
@@ -1004,7 +1009,7 @@ mod tests {
         let mut apu = Apu::new();
 
         // Write $4001: sweep for pulse 1
-        apu.write_reg(0x4001, 0b1_011_1_010); // enabled, period=3, negate, shift=2
+        apu.write_reg(0x4001, 0b1011_1010); // enabled, period=3, negate, shift=2
         assert!(apu.pulse1.sweep.enabled);
         assert_eq!(apu.pulse1.sweep.period, 3);
         assert!(apu.pulse1.sweep.negate);
@@ -1012,7 +1017,7 @@ mod tests {
         assert!(apu.pulse1.sweep.reload);
 
         // Write $4005: sweep for pulse 2
-        apu.write_reg(0x4005, 0b0_101_0_011); // disabled, period=5, no negate, shift=3
+        apu.write_reg(0x4005, 0b0101_0011); // disabled, period=5, no negate, shift=3
         assert!(!apu.pulse2.sweep.enabled);
         assert_eq!(apu.pulse2.sweep.period, 5);
         assert!(!apu.pulse2.sweep.negate);

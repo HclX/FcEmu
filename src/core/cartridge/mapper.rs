@@ -503,6 +503,10 @@ impl Mapper for Mapper227 {
 }
 
 #[cfg(test)]
+// Mapper30/34/3/7 were added below this test module; moving ~500 lines of
+// tests to the end of the file would be a pure-move diff with no benefit,
+// so the placement is kept deliberately.
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use super::*;
 
@@ -614,12 +618,12 @@ mod tests {
         // CPU $8000 (A14=0) -> bank 4 (inner 4 & 6 = 4) -> offset 1 * 128KB + 4 * 16KB = 192KB
         assert_eq!(
             mapper.map_cpu_read(0x8000),
-            Some(1 * 128 * 1024 + 4 * 16 * 1024)
+            Some(128 * 1024 + 4 * 16 * 1024)
         );
         // CPU $C000 (A14=1) -> bank 5 (inner 4 | 1 = 5) -> offset 1 * 128KB + 5 * 16KB = 208KB
         assert_eq!(
             mapper.map_cpu_read(0xC000),
-            Some(1 * 128 * 1024 + 5 * 16 * 1024)
+            Some(128 * 1024 + 5 * 16 * 1024)
         );
 
         // Test Case 4: UNROM Mode (O = 0, L = 1, Inner Bank = 3, Outer Block = 0)
@@ -687,7 +691,7 @@ mod tests {
         // Write PRG bank 1 to $7FFD
         mapper.map_cpu_write(0x7FFD, 1);
         assert_eq!(mapper.prg_bank, 1);
-        assert_eq!(mapper.map_cpu_read(0x8000), Some(1 * 32768));
+        assert_eq!(mapper.map_cpu_read(0x8000), Some(32768));
 
         // PPU CHR banking
         // Write CHR bank 2 to $7FFE (low 4KB)
