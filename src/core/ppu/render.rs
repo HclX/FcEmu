@@ -282,9 +282,29 @@ impl Ppu {
 
         // Resolve final RGB color from palette index
         let pal_idx = (final_color_idx & 0x3F) as usize;
-        let r = NES_PALETTE[pal_idx * 3];
-        let g = NES_PALETTE[pal_idx * 3 + 1];
-        let b = NES_PALETTE[pal_idx * 3 + 2];
+        let mut r = NES_PALETTE[pal_idx * 3];
+        let mut g = NES_PALETTE[pal_idx * 3 + 1];
+        let mut b = NES_PALETTE[pal_idx * 3 + 2];
+
+        // Apply color emphasis (PPUMASK bits 5-7): each set bit
+        // attenuates the OTHER two color channels to 75%. Effects stack
+        // multiplicatively. This is the standard approximation of the
+        // PPU's analog emphasis behavior.
+        if (self.mask & 0x20) != 0 {
+            // Emphasize red: attenuate green and blue
+            g = (g as u16 * 3 / 4) as u8;
+            b = (b as u16 * 3 / 4) as u8;
+        }
+        if (self.mask & 0x40) != 0 {
+            // Emphasize green: attenuate red and blue
+            r = (r as u16 * 3 / 4) as u8;
+            b = (b as u16 * 3 / 4) as u8;
+        }
+        if (self.mask & 0x80) != 0 {
+            // Emphasize blue: attenuate red and green
+            r = (r as u16 * 3 / 4) as u8;
+            g = (g as u16 * 3 / 4) as u8;
+        }
 
         let fb_idx = (y * 256 + x) * 4;
         self.frame_buffer[fb_idx] = r;
@@ -613,6 +633,63 @@ mod tests {
             px1_r, backdrop_r,
             "fine_x=1 should select transparent bit 6 (backdrop)"
         );
+    }
+
+    // ── Color Emphasis (PPUMASK bits 5-7) ─────────────────────────────
+
+    /// Render one opaque BG pixel with the given mask; returns (r, g, b, a).
+    fn render_bg_pixel_with_mask(mask: u8) -> (u8, u8, u8, u8) {
+        let mut ppu = make_render_ppu();
+        let mut bus = MockPpuBus::new();
+
+        ppu.mask = mask;
+
+        // Opaque BG: tile 1 with all pixels set, palette color index 3.
+        ppu.v = 0;
+        bus.nametable[0] = 1;
+        bus.pattern[0x0010] = 0xFF; // low plane
+        bus.pattern[0x0018] = 0xFF; // high plane
+        bus.nametable[0x3C0] = 0x00; // attribute: palette group 0
+                                     // Palette color 0x30 = white (255, 255, 255).
+        ppu.palette_ram[3] = 0x30;
+
+        ppu.render_pixel(&mut bus);
+
+        let fb_idx = (ppu.scanline as usize * 256) * 4;
+        (
+            ppu.frame_buffer[fb_idx],
+            ppu.frame_buffer[fb_idx + 1],
+            ppu.frame_buffer[fb_idx + 2],
+            ppu.frame_buffer[fb_idx + 3],
+        )
+    }
+
+    #[test]
+    fn test_color_emphasis_red_attenuates_green_blue() {
+        // mask: show left BG + show BG + red emphasis (bit 5)
+        let (r, g, b, a) = render_bg_pixel_with_mask(0x0A | 0x20);
+        assert_eq!((r, g, b, a), (255, 191, 191, 255));
+    }
+
+    #[test]
+    fn test_color_emphasis_green_attenuates_red_blue() {
+        // mask: show left BG + show BG + green emphasis (bit 6)
+        let (r, g, b, a) = render_bg_pixel_with_mask(0x0A | 0x40);
+        assert_eq!((r, g, b, a), (191, 255, 191, 255));
+    }
+
+    #[test]
+    fn test_color_emphasis_blue_attenuates_red_green() {
+        // mask: show left BG + show BG + blue emphasis (bit 7)
+        let (r, g, b, a) = render_bg_pixel_with_mask(0x0A | 0x80);
+        assert_eq!((r, g, b, a), (191, 191, 255, 255));
+    }
+
+    #[test]
+    fn test_no_emphasis_leaves_colors_untouched() {
+        // mask: show left BG + show BG, no emphasis bits
+        let (r, g, b, a) = render_bg_pixel_with_mask(0x0A);
+        assert_eq!((r, g, b, a), (255, 255, 255, 255));
     }
 
     // ── Scanline Counter Behavior ─────────────────────────────────────
