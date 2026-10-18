@@ -965,7 +965,12 @@ async function handleROMBuffer(arrayBuffer, romName = "unknown_rom.nes") {
                 } else {
                     console.log("[FcEmu] No existing SRAM save state found. Starting fresh.");
                     const freshSram = emulator.get_sram();
-                    if (freshSram) lastSavedSram = freshSram.slice();
+                    // Baseline must be all-zeros: the cartridge initializes
+                    // SRAM to zeros, but by the time this async block runs
+                    // the CPU may already have written to SRAM — snapshotting
+                    // get_sram() here would bake those early writes into the
+                    // baseline and they would never auto-save.
+                    if (freshSram) lastSavedSram = new Uint8Array(freshSram.length);
                 }
             } catch (err) {
                 console.error("[FcEmu] Failed to restore SRAM save state:", err);
